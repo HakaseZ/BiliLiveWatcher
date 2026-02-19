@@ -14,9 +14,10 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	//"github.com/HakaseZ/BiliLiveWatcher/utils/network"
 )
 
-type navResponse struct {
+type NavResponse struct {
 	Data struct {
 		Wbi struct {
 			ImgUrl string `json:"img_url"`
@@ -30,7 +31,7 @@ func getWbiKeys() (string, string) {
 	if err != nil {
 		//handle err
 	}
-	var navRes navResponse
+	var navRes NavResponse
 	json.NewDecoder(response.Body).Decode(&navRes)
 	defer response.Body.Close()
 	imgKey := extractKey(navRes.Data.Wbi.ImgUrl)
