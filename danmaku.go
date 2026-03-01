@@ -1,12 +1,14 @@
-// 构造Https请求进行握手，并连接websocket弹幕服务器
+/*
+构造Https请求进行握手，并连接websocket弹幕服务器
 
-// 测试房间号
-// 92613 API
-// uri = wss://host.port/sub
-// getDanmuInfo_uri = https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo
-// getkeys_uri = https://api.bilibili.com/x/web-interface/nav
+测试房间号
+92613 API
+uri = wss://host.port/sub
+getDanmuInfo_uri = https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo
+getkeys_uri = https://api.bilibili.com/x/web-interface/nav
 
-// 步骤：通过KeysUrl获取WbiKeys
+步骤：通过KeysUrl获取WbiKeys
+*/
 package main
 
 import (
