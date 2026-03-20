@@ -10,15 +10,13 @@ import (
 )
 
 func EncWbi(params map[string]interface{}) string {
-	/*
-		实现WBI加密算法，生成w_rid并添加到params中
-
-		Args:
-			params (map[string]interface{}) 请求的原始参数
-
-		Returns:
-			w_rid (string): WBI加密生成的签名参数
-	*/
+	// 实现WBI加密算法，生成w_rid并添加到params中
+	//
+	// Args:
+	// 	params (map[string]interface{}) 请求的原始参数
+	//
+	// Returns:
+	// 	w_rid (string): WBI加密生成的签名参数
 
 	params = filterParams(params) // 过滤value中的 "!'()*" 字符
 
@@ -33,15 +31,14 @@ func EncWbi(params map[string]interface{}) string {
 }
 
 func filterParams(params map[string]interface{}) map[string]interface{} {
-	/*
-		过滤value中的 "!'()*" 字符
+	// 	过滤value中的 "!'()*" 字符
+	//
+	// 	Args:
+	// 		params (map[string]interface{}): 原始参数
+	//
+	// 	Returns:
+	// 		filteredParams (map[string]interface{}): 过滤后的参数
 
-		Args:
-			params (map[string]interface{}): 原始参数
-
-		Returns:
-			filteredParams (map[string]interface{}): 过滤后的参数
-	*/
 	filteredParams := make(map[string]interface{})
 	for key, value := range params {
 		strValue := fmt.Sprintf("%v", value)
@@ -74,17 +71,15 @@ var mixinKeyEncTab = []int{
 }
 
 func getMixinKey() string {
-	/*
-		获取WBI加密的mixin_key
-
-		*** 当前的请求不带用户登陆状态，仅能获取匿名用户的mixin_key，可能会导致部分接口请求失败 ***
-
-		请求接口URL：
-			https://api.bilibili.com/x/web-interface/nav
-
-		Returns:
-			mixin_key (string): 混淆后的mixin_key
-	*/
+	// 获取WBI加密的mixin_key
+	//
+	// *** 当前的请求不带用户登陆状态，仅能获取匿名用户的mixin_key，可能会导致部分接口请求失败 ***
+	//
+	// 请求接口URL：
+	// 	https://api.bilibili.com/x/web-interface/nav
+	//
+	// Returns:
+	// 	mixin_key (string): 混淆后的mixin_key
 
 	response, err := http.Get("https://api.bilibili.com/x/web-interface/nav")
 	if err != nil {
