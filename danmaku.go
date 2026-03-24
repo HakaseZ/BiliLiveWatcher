@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/utils"
@@ -25,10 +26,11 @@ import (
 )
 
 func main() {
-	roomID := 92613
+	roomID := 47867
 	token, hostList, _ := utils.GetDanmuInfo(roomID)
 	host := hostList[0].Host // 使用第一个主机地址
 	wsURL := fmt.Sprintf("wss://%s/sub", host)
+	fmt.Printf("正在连接弹幕服务器:%s ", wsURL)
 
 	// 1. 建立连接
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
@@ -43,67 +45,33 @@ func main() {
 	if err != nil {
 		fmt.Println("Send auth error:", err)
 	}
-
 	fmt.Println("认证包已发送，等待 B 站响应...")
 
+	go func() {
+		ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳包
+		defer ticker.Stop()
+
+		// 修改后的写法
+		for range ticker.C {
+			heartbeatPacket := MakeHeartbeatPacket()
+			err := conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
+			if err != nil {
+				fmt.Println("Send heartbeat error:", err)
+				return // 发生错误跳出循环，协程结束
+			}
+			fmt.Println("心跳包已发送")
+		}
+	}()
+
+	// 3. 处理消息流
 	for {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			fmt.Println("Read error:", err)
 			break
 		}
-
-		go func() {
-			ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳包
-			defer ticker.Stop()
-
-			// 修改后的写法
-			for range ticker.C {
-				heartbeatPacket := MakeHeartbeatPacket()
-				err := conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
-				if err != nil {
-					fmt.Println("Send heartbeat error:", err)
-					return // 发生错误跳出循环，协程结束
-				}
-				fmt.Println("心跳包已发送")
-			}
-		}()
-
+		// fmt.Printf("%d", message)
 		ParsePacket(message)
-		// 		// 解析消息
-		// 		if len(message) < 16 {
-		// 			fmt.Println("Received message too short to parse")
-		// 			continue
-		// 		}
-		//
-		// 		opCode := binary.BigEndian.Uint32(message[8:12])
-		// 		switch opCode {
-		// 		case 8: // Auth response
-		// 			decodeAuthResponse(message)
-		// 			// 启动	心跳 goroutine
-		// 			go func() {
-		// 				ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳包
-		// 				defer ticker.Stop()
-		//
-		// 				// 修改后的写法
-		// 				for range ticker.C {
-		// 					heartbeatPacket := MakeHeartbeatPacket()
-		// 					err := conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
-		// 					if err != nil {
-		// 						fmt.Println("Send heartbeat error:", err)
-		// 						return // 发生错误跳出循环，协程结束
-		// 					}
-		// 					fmt.Println("心跳包已发送")
-		// 				}
-		// 			}()
-		// 		case 5: // Danmu message
-		// 			decodeDanmuMessage(message)
-		// 		case 3: // Heartbeat response
-		// 			fmt.Println("Received heartbeat response")
-		// 			// 可以在这里解析心跳响应的负载，提取在线人数等信息
-		// 		default:
-		// 			fmt.Printf("Received message with unknown OpCode %d\n", opCode)
-		// 		}
 	}
 }
 
@@ -119,6 +87,7 @@ type BiliHeader struct {
 // ParsePacket 解析收到的原始字节流
 func ParsePacket(data []byte) {
 	if len(data) < 16 {
+		fmt.Printf("Len(data) < 16")
 		return
 	}
 
@@ -149,7 +118,15 @@ func ParsePacket(data []byte) {
 	// 粘包处理：如果 Data 长度大于当前 PacketLen，说明后面还有包
 	if len(data) > int(header.PacketLen) {
 		ParsePacket(data[header.PacketLen:])
+		fmt.Printf("[粘包] 发现粘包，继续解析剩余数据...\n")
 	}
+}
+
+func PraseDANMU_MSG(info []interface{}) {
+	// info[1] 是用户信息，info[2] 是弹幕内容
+	userInfo := info[1].([]interface{})
+	danmuContent := info[1].(string)
+	fmt.Printf("[弹幕] %s: %s\n", userInfo[1], danmuContent)
 }
 
 // handleCommand 处理具体指令
@@ -157,14 +134,19 @@ func handleCommand(ver uint16, payload []byte) {
 	switch ver {
 	case 0, 1:
 		// 未压缩的 JSON
+		// savePayloadToFile(payload)
 		var body map[string]interface{}
 		if err := json.Unmarshal(payload, &body); err == nil {
 			cmd, _ := body["cmd"].(string)
 			if cmd == "DANMU_MSG" {
-				// 简化提取：通常 info[1] 是内容，info[2][1] 是昵称
-				fmt.Printf("[弹幕] %v\n", body["info"])
+				// 提取出“用户：弹幕内容”
+				// fmt.Printf("[弹幕] %s\n", body["info"])
+				// fmt.Printf("[弹幕] %s\n", body["info"].([]interface{})[1])
+				// fmt.Printf("[弹幕] %s\n", body["info"].([]interface{})[2])
+				fmt.Printf("[弹幕] %s(%f): %s\n", body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[2].([]interface{})[0], body["info"].([]interface{})[1])
+
 			} else {
-				fmt.Printf("[消息] 收到命令: %s\n", cmd)
+				// fmt.Printf("[消息] 收到命令: %s\n", cmd)
 			}
 		}
 	case 3:
@@ -222,32 +204,6 @@ func MakeAuthPacket(roomID int, token string) []byte {
 	return packet.Bytes()
 }
 
-func decodeAuthResponse(data []byte) {
-	// 解析认证响应包，提取状态码和消息
-	if len(data) < 16 {
-		fmt.Println("Invalid auth response: too short")
-		return
-	}
-
-	payload := data[16:]
-
-	var authResp struct {
-		Code int    `json:"code"`
-		Msg  string `json:"msg"`
-	}
-	err := json.Unmarshal(payload, &authResp)
-	if err != nil {
-		fmt.Println("Failed to parse auth response payload:", err)
-		return
-	}
-
-	fmt.Printf("Auth Response Payload - Code: %d, Msg: %s\n", authResp.Code, authResp.Msg)
-}
-
-func decodeDanmuMessage(data []byte) {
-	fmt.Printf("Received danmu message. \n")
-}
-
 func MakeHeartbeatPacket() []byte {
 	// 构造 B 站二进制心跳包
 	header := make([]byte, 16)
@@ -258,4 +214,19 @@ func MakeHeartbeatPacket() []byte {
 	binary.BigEndian.PutUint32(header[12:16], 1) // 序列号
 
 	return header
+}
+
+func savePayloadToFile(payload []byte) {
+	// os.O_APPEND: 追加模式
+	// os.O_CREATE: 文件不存在则创建
+	// os.O_WRONLY: 只写模式
+	f, err := os.OpenFile("danmu_log.xml", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	// 直接写入字节流，并在末尾加个换行符，方便后续按行读取
+	f.Write(payload)
+	f.WriteString("\n")
 }
