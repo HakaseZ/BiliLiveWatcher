@@ -16,9 +16,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	rander "math/rand"
+	"net/http"
 	"os"
-	"time"
 
+	tmp "github.com/HakaseZ/BiliLiveWatcher/.tmp"
 	"github.com/HakaseZ/BiliLiveWatcher/utils"
 
 	"github.com/andybalholm/brotli"
@@ -26,52 +28,53 @@ import (
 )
 
 func main() {
-	roomID := 47867
+	roomID := 92613
 	token, hostList, _ := utils.GetDanmuInfo(roomID)
-	host := hostList[0].Host // 使用第一个主机地址
+	// for _, host := range hostList {
+	// 	go connectWebSocket(roomID, token, host.Host)
+	// }
+	connectWebSocket(roomID, token, hostList[0].Host)
+	select {}
+}
+func connectWebSocket(roomID int, token string, host string) {
+
 	wsURL := fmt.Sprintf("wss://%s/sub", host)
-	fmt.Printf("正在连接弹幕服务器:%s ", wsURL)
+	fmt.Printf("正在连接弹幕服务器:%s\n", wsURL)
 
 	// 1. 建立连接
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	header := http.Header{}
+	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	header.Set("Referer", "https://www.bilibili.com")
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
 		fmt.Println("Dial error:", err)
 	}
 	defer conn.Close()
 
 	// 2. 发送认证包
-	authPacket := MakeAuthPacket(roomID, token)
+	authPacket := utils.MakeAuthPacket(roomID, token)
 	err = conn.WriteMessage(websocket.BinaryMessage, authPacket)
 	if err != nil {
 		fmt.Println("Send auth error:", err)
 	}
 	fmt.Println("认证包已发送，等待 B 站响应...")
 
-	go func() {
-		ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳包
-		defer ticker.Stop()
-
-		// 修改后的写法
-		for range ticker.C {
-			heartbeatPacket := MakeHeartbeatPacket()
-			err := conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
-			if err != nil {
-				fmt.Println("Send heartbeat error:", err)
-				return // 发生错误跳出循环，协程结束
-			}
-			fmt.Println("心跳包已发送")
-		}
-	}()
+	// 发送心跳包的协程
+	go utils.SendHeartbeatPacket(conn)
 
 	// 3. 处理消息流
+	messageCounter := 0
 	for {
-		_, message, err := conn.ReadMessage()
+		messageCounter++
+		_, packet, err := conn.ReadMessage()
+		// fmt.Printf("收到原始包: %X\n", packet[:16])
 		if err != nil {
 			fmt.Println("Read error:", err)
 			break
 		}
-		// fmt.Printf("%d", message)
-		ParsePacket(message)
+		tmp.ParsePacket(packet, messageCounter)
+		// fmt.Printf("包编号%d\n", messageCounter)
+		// ParsePacket(message, mes)
 	}
 }
 
@@ -85,40 +88,40 @@ type BiliHeader struct {
 }
 
 // ParsePacket 解析收到的原始字节流
-func ParsePacket(data []byte) {
+func ParsePacket(data []byte, seqchan int) {
+	seq := rander.Intn(100)
+	// fmt.Printf("收到数据包，长度: %d 字节，编号: %d，来自: %d\n", len(data), seq, seqchan)
 	if len(data) < 16 {
 		fmt.Printf("Len(data) < 16")
 		return
-	}
+	} else {
+		header := BiliHeader{
+			PacketLen: binary.BigEndian.Uint32(data[0:4]),
+			HeaderLen: binary.BigEndian.Uint16(data[4:6]),
+			Ver:       binary.BigEndian.Uint16(data[6:8]),
+			Op:        binary.BigEndian.Uint32(data[8:12]),
+			Seq:       binary.BigEndian.Uint32(data[12:16]),
+		}
+		// 粘包处理：如果 Data 长度大于当前 PacketLen，说明后面还有包
+		if len(data) > int(header.PacketLen) {
+			go ParsePacket(data[header.PacketLen:], seq)
+			//fmt.Printf("[粘包] 发现粘包，继续解析剩余数据...\n")
+		}
+		payload := data[header.HeaderLen:header.PacketLen]
 
-	header := BiliHeader{
-		PacketLen: binary.BigEndian.Uint32(data[0:4]),
-		HeaderLen: binary.BigEndian.Uint16(data[4:6]),
-		Ver:       binary.BigEndian.Uint16(data[6:8]),
-		Op:        binary.BigEndian.Uint32(data[8:12]),
-		Seq:       binary.BigEndian.Uint32(data[12:16]),
-	}
+		switch header.Op {
+		case 8:
+			fmt.Println("[系统] 认证成功！")
+		case 3:
+			// 心跳回复
+			fmt.Printf("收到心跳回复\n")
+		case 5:
+			// 业务通知（弹幕、礼物等）
+			handleCommand(header.Ver, payload)
+		default:
+			fmt.Printf("[未知] Op: %d\n", header.Op)
+		}
 
-	payload := data[header.HeaderLen:header.PacketLen]
-
-	switch header.Op {
-	case 8:
-		fmt.Println("[系统] 认证成功！")
-	case 3:
-		// 心跳回复，通常包含当前人气值
-		popularity := binary.BigEndian.Uint32(payload)
-		fmt.Printf("[人气] 当前在线人气: %d\n", popularity)
-	case 5:
-		// 业务通知（弹幕、礼物等）
-		handleCommand(header.Ver, payload)
-	default:
-		fmt.Printf("[未知] Op: %d\n", header.Op)
-	}
-
-	// 粘包处理：如果 Data 长度大于当前 PacketLen，说明后面还有包
-	if len(data) > int(header.PacketLen) {
-		ParsePacket(data[header.PacketLen:])
-		fmt.Printf("[粘包] 发现粘包，继续解析剩余数据...\n")
 	}
 }
 
@@ -150,70 +153,16 @@ func handleCommand(ver uint16, payload []byte) {
 			}
 		}
 	case 3:
-		fmt.Println("[系统] 收到 Brotli 压缩包，正在解压...")
+		//fmt.Println("[系统] 收到 Brotli 压缩包，正在解压...")
 		// Brotli 压缩
 		reader := brotli.NewReader(bytes.NewReader(payload))
 		decompressed, _ := io.ReadAll(reader)
 		// 注意：解压后的内容是完整的 B 站协议包（Header+Payload），需要递归解析
-		ParsePacket(decompressed)
+		ParsePacket(decompressed, 0)
 	case 2:
 		// zlib 压缩 (逻辑同上，使用 compress/zlib)
 		fmt.Println("[警告] 收到 zlib 压缩包，请自行实现解压逻辑")
 	}
-}
-
-// AuthPayload 认证包的 JSON 结构
-type AuthPayload struct {
-	UID      int    `json:"uid"`      // 游客传 0
-	RoomID   int    `json:"roomid"`   // 房间号
-	ProtoVer int    `json:"protover"` // 建议传 3 (支持最全)
-	Platform string `json:"platform"` // 固定 "web"
-	Type     int    `json:"type"`     // 固定 2
-	Key      string `json:"key"`      // 就是你拿到的那个 Token
-}
-
-// MakeAuthPacket 构造 B 站二进制认证包
-func MakeAuthPacket(roomID int, token string) []byte {
-	// 1. 准备 Payload
-	payload := AuthPayload{
-		UID:      0,
-		RoomID:   roomID,
-		ProtoVer: 3,
-		Platform: "web",
-		Type:     2,
-		Key:      token,
-	}
-	payloadBytes, _ := json.Marshal(payload)
-
-	// 2. 构造 Header (16 字节)
-
-	header := make([]byte, 16)
-	totalLen := uint32(len(payloadBytes) + 16)
-
-	binary.BigEndian.PutUint32(header[0:4], totalLen) // 总长度
-	binary.BigEndian.PutUint16(header[4:6], 16)       // 头部长度
-	binary.BigEndian.PutUint16(header[6:8], 1)        // 协议版本
-	binary.BigEndian.PutUint32(header[8:12], 7)       // 操作码: 7 (Auth)
-	binary.BigEndian.PutUint32(header[12:16], 1)      // 序列号
-
-	// 3. 拼接 Header + Payload
-	var packet bytes.Buffer
-	packet.Write(header)
-	packet.Write(payloadBytes)
-
-	return packet.Bytes()
-}
-
-func MakeHeartbeatPacket() []byte {
-	// 构造 B 站二进制心跳包
-	header := make([]byte, 16)
-	binary.BigEndian.PutUint32(header[0:4], 16)  // 总长度
-	binary.BigEndian.PutUint16(header[4:6], 16)  // 头部长度
-	binary.BigEndian.PutUint16(header[6:8], 1)   // 协议版本
-	binary.BigEndian.PutUint32(header[8:12], 2)  // 操作码: 2 (Heartbeat)
-	binary.BigEndian.PutUint32(header[12:16], 1) // 序列号
-
-	return header
 }
 
 func savePayloadToFile(payload []byte) {
