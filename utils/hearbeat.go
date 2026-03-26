@@ -8,8 +8,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-var cstZone = time.FixedZone("CST", 8*3600)
-
 func SendHeartbeatPacket(conn *websocket.Conn) {
 	// 发送心跳包的协程
 	ticker := time.NewTicker(30 * time.Second) // 每30秒发送一次心跳包

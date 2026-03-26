@@ -98,36 +98,55 @@ func ParsePacket(packet []byte, packetId int) {
 }
 
 func ParseJson(payload []byte) {
-	var body map[string]interface{}
-	if err := json.Unmarshal(payload, &body); err == nil {
-		cmd, _ := body["cmd"].(string)
-		switch cmd {
+	// var res struct {
+	// 	Cmd  string          `json:"cmd"`
+	// 	Data json.RawMessage `json:"data"`
+	// 	Info json.RawMessage `json:"info"`
+	// }
+	var msg map[string]interface{}
+	if err := json.Unmarshal(payload, &msg); err == nil {
+		// cmd := res.Cmd
+		// switch res.Cmd {
+		switch msg["cmd"] {
 		case "DANMU_MSG":
 			// 弹幕消息
+			deal_DANMU_MSG(msg)
 			// fmt.Printf("[%s] [%s] %s(%f): %s\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[2].([]interface{})[0], body["info"].([]interface{})[1])
-			slog.Info(cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[1])
-			debugLogger.Debug(cmd, "body[info]", body["info"])
+
+			// slog.Info(cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[1])
+			debugLogger.Debug("DANMU_MSG", "body", msg)
+		case "DANMU_MSG_MIRROR":
+			// 弹幕消息
+			// fmt.Printf("[%s] [%s] %s(%f): %s\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[2].([]interface{})[0], body["info"].([]interface{})[1])
+
+			// slog.Info(cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[1])
+			// debugLogger.Debug(cmd, "body[info]", body["info"])
 		case "INTERACT_WORD_V2":
 			// 进入直播间
-			debugLogger.Debug(cmd, "body", body)
+			deal_INTERACT_WORD_V2(msg)
+			// slog.Info(cmd, "data", res.Data)
+
+			// slog.Info(cmd, "pb", body["data"].(map[string]interface{})["pb"])
+			// debugLogger.Debug(cmd, "body", body)
 		case "ENTRY_EFFECT":
 			// 进场特效（不处理）
-			debugLogger.Debug(cmd)
-		case "LIVE":
-			// 开播
-			debugLogger.Debug(cmd, "body", body)
-		case "PREPARING":
-			// 下播
-			debugLogger.Debug(cmd, "body", body)
-		case "SEND_GIFT":
-			// 礼物
-			debugLogger.Debug(cmd, "body", body)
-		case "PREPASUPER_CHAT_MESSAGERING":
-			// SC
-			debugLogger.Debug(cmd, "body", body)
+
+		// 	// debugLogger.Debug(cmd)
+		// case "LIVE":
+		// 	// 开播
+		// 	debugLogger.Debug(cmd, "body", body)
+		// case "PREPARING":
+		// 	// 下播
+		// 	debugLogger.Debug(cmd, "body", body)
+		// case "SEND_GIFT":
+		// 	// 礼物
+		// 	debugLogger.Debug(cmd, "body", body)
+		// case "PREPASUPER_CHAT_MESSAGERING":
+		// 	// SC
+		// 	debugLogger.Debug(cmd, "body", body)
 		default:
 			// fmt.Printf("[%s] [%s]\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd)
-			debugLogger.Debug(cmd)
+			// debugLogger.Debug(cmd)
 		}
 	} else {
 		slog.Error("Parse Json Error", "err", err)

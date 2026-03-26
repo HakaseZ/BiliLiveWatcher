@@ -41,7 +41,7 @@ func init() {
 
 func main() {
 
-	roomID := 15122413
+	roomID := 92613
 	token, hostList, _ := utils.GetDanmuInfo(roomID)
 	connectWebSocket(roomID, token, hostList[0].Host)
 	select {}
