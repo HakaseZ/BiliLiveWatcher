@@ -2,7 +2,7 @@ package utils
 
 import (
 	"encoding/binary"
-	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -20,10 +20,11 @@ func SendHeartbeatPacket(conn *websocket.Conn) {
 		heartbeatPacket := MakeHeartbeatPacket()
 		err := conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
 		if err != nil {
-			fmt.Println("Send heartbeat error:", err)
+			slog.Error("Send Hearbeat Error", "err", err)
 			return // 发生错误跳出循环，协程结束
+		} else {
+			slog.Info("心跳包已发送")
 		}
-		fmt.Printf("[%s] 心跳包已发送\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"))
 	}
 }
 func MakeHeartbeatPacket() []byte {

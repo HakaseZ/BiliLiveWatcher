@@ -13,8 +13,8 @@ type AuthPayload struct {
 	ProtoVer int    `json:"protover"` // 建议传 3 (支持最全)
 	Platform string `json:"platform"` // 固定 "web"
 	Type     int    `json:"type"`     // 固定 2
-	Key      string `json:"key"`      // 就是你拿到的那个 Token
-	Buvid    string `json:buvid`      // ？
+	Key      string `json:"key"`      // Token
+	BuvID    string `json:"buvid"`    // ？
 }
 
 // MakeAuthPacket 构造 B 站二进制认证包
@@ -36,8 +36,9 @@ func MakeAuthPacket(roomID int, token string) []byte {
 		Platform: "web",
 		Type:     2,
 		Key:      token,
-		Buvid:    "3E099D19-090A-6CD9-57DE-BDC1993E947C50111infoc",
+		BuvID:    "3E099D19-090A-6CD9-57DE-BDC1993E947C50111infoc",
 	}
+
 	payloadBytes, _ := json.Marshal(payload)
 
 	// 2. 构造 Header (16 字节)

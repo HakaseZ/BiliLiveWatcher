@@ -2,17 +2,20 @@ package message
 
 import (
 	"bytes"
-	"compress/zlib"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"time"
 
 	"github.com/andybalholm/brotli"
 )
 
-// BiliHeader 16字节头部结构
+var cstZone = time.FixedZone("CST", 8*3600)
+var debugLogger *slog.Logger
+
 type BiliHeader struct {
 	PacketLen uint32 // 总长度
 	HeaderLen uint16 // 头部长度 (固定16)
@@ -21,101 +24,112 @@ type BiliHeader struct {
 	Seq       uint32 // 序列号
 }
 
-func ParsePacket(packet []byte, packetId int) {
-	// 解析并处理的原始字节流
-
-	// 包的长度至少要有16字节的头部
-	if len(packet) < 16 {
-		return
-	} else {
-		header := BiliHeader{
-			PacketLen: binary.BigEndian.Uint32(packet[0:4]),
-			HeaderLen: binary.BigEndian.Uint16(packet[4:6]),
-			Ver:       binary.BigEndian.Uint16(packet[6:8]),
-			Op:        binary.BigEndian.Uint32(packet[8:12]),
-			Seq:       binary.BigEndian.Uint32(packet[12:16]),
-		}
-
-		// 粘包处理：如果 packet 长度大于当前 PacketLen，说明后面还有包
-		if len(packet) > int(header.PacketLen) {
-			fmt.Printf("处理粘包\n")
-			go ParsePacket(packet[header.PacketLen:], packetId)
-		}
-
-		payload := packet[header.HeaderLen:header.PacketLen]
-
-		switch header.Op {
-		// 根据操作码判断业务类型
-		//
-		// op3：
-		// 	心跳回复
-		// op5：
-		// 	业务通知
-		// op8:
-		// 	认证响应
-
-		case 3:
-		case 5:
-			handleCommand(header.Ver, payload)
-		case 8:
-		default:
-			fmt.Printf("收到未知操作码: %d\n", header.Op)
-			// 将未知操作码以及对应的包保存至本地文件，方便后续分析
-			f, err := os.OpenFile(fmt.Sprintf("./.tmp/[%v]unknown_ops.log", time.Now().Unix()), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-			if err != nil {
-				fmt.Println("无法打开日志文件:", err)
-				return
-			}
-			defer f.Close()
-			logEntry := fmt.Sprintf("Op: %d, Ver: %d, Payload: %s\n", header.Op, header.Ver, string(payload))
-			if _, err := f.WriteString(logEntry); err != nil {
-				fmt.Println("无法写入日志文件:", err)
-			}
-		}
-
+func init() {
+	// 初始化时间设置
+	var err error
+	time.Local, err = time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		time.Local = time.FixedZone("CST", 8*3600)
 	}
-}
-func handleCommand(ver uint16, payload []byte) {
-	switch ver {
-	// 根据协议版本判断 payload 的处理方式
-	//
-	// ver0/1:
-	// 	未压缩的 JSON
-	// ver2:
-	// 	zlib 压缩
-	// ver3:
-	// 	brotli 压缩
 
-	case 0, 1:
-		// 未压缩的 JSON
-		handleJSON(payload)
-	case 2:
-		//fmt.Println("[系统] 收到 zlib 压缩包，正在解压...")
-		// zlib 压缩
-		reader, _ := zlib.NewReader(bytes.NewReader(payload))
-		decompressed, _ := io.ReadAll(reader)
-		reader.Close()
-		// 注意：解压后的内容是完整的 B 站协议包（Header+Payload），需要递归解析
-		ParsePacket(decompressed)
-	case 3:
-		//fmt.Println("[系统] 收到 Brotli 压缩包，正在解压...")
-		// Brotli 压缩
-		reader := brotli.NewReader(bytes.NewReader(payload))
-		decompressed, _ := io.ReadAll(reader)
-		// 注意：解压后的内容是完整的 B 站协议包（Header+Payload），需要递归解析
-		ParsePacket(decompressed)
-	default:
-		fmt.Printf("收到未知协议版本: %d\n", ver)
-		// 将未知协议版本以及对应的包保存至本地文件，方便后续分析
-		f, err := os.OpenFile(fmt.Sprintf("./.tmp/[%v]unknown_vers.log", time.Now().Unix()), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			fmt.Println("无法打开日志文件:", err)
-			return
+	//初始化全局logger
+	debuglogfile, _ := os.OpenFile(".tmp/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+
+	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
+}
+
+func ParsePacket(packet []byte, packetId int) {
+	// 调试过程中分析每个数据包
+	// Args:
+	// 	packet: 原始字节流数据包
+	// 	packetId: 数据包编号（用于调试和日志记录）
+
+	// packet存在几种情况
+	// 1，长度小于16字节：无法解析头部，直接丢弃
+	// 2，单个数据包
+	// 3，粘包：一个数据包后面紧跟着另一个数据包，需要递归解析剩余数据
+	// 4，分包（不确定是否存在这种情况）：一个数据包被分成多次发送，假设存在分包，打印出存在分包的提示，暂不处理分包的内容
+
+	// 处理逻辑：
+	// 1. 解析头部信息，判断数据包的总长度、头部长度、协议版本、操作码和序列号
+	// 2. 根据操作码判断业务类型，分别处理心跳回复、业务通知和认证响应
+	// 3. 如果数据包长度大于当前包的总长度，说明存在粘包，递归解析剩余数据
+	// 4. 如果数据包长度小于头部信息中指定的总长度，说明当前数据包被分成多次发送，打印出存在分包的提示，暂不处理分包的内容
+
+	header := BiliHeader{
+		PacketLen: binary.BigEndian.Uint32(packet[0:4]),
+		HeaderLen: binary.BigEndian.Uint16(packet[4:6]),
+		Ver:       binary.BigEndian.Uint16(packet[6:8]),
+		Op:        binary.BigEndian.Uint32(packet[8:12]),
+		Seq:       binary.BigEndian.Uint32(packet[12:16]),
+	}
+	if len(packet) > int(header.PacketLen) {
+		// fmt.Printf("[%s] 粘包, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+		ParsePacket(packet[:header.PacketLen], packetId)
+		ParsePacket(packet[header.PacketLen:], packetId*100)
+	} else if len(packet) == int(header.PacketLen) {
+		switch header.Ver {
+		case 0:
+			// 解析json
+			// fmt.Printf("[%s] Json, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+			ParseJson(packet[header.HeaderLen:header.PacketLen])
+		case 1:
+			// 心跳包，丢弃
+			// fmt.Printf("[%s] 响应包, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+			debugLogger.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
+		case 2:
+			// zlib压缩包
+			// fmt.Printf("[%s] zlib, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+			debugLogger.Debug("zlib", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
+		case 3:
+			// Brotli压缩包
+			// fmt.Printf("[%s] Brotli, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+			reader := brotli.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
+			decompressed, _ := io.ReadAll(reader)
+			ParsePacket(decompressed, packetId)
 		}
-		defer f.Close()
-		logEntry := fmt.Sprintf("Ver: %d, Payload: %s\n", ver, string(payload))
-		if _, err := f.WriteString(logEntry); err != nil {
-			fmt.Println("无法写入日志文件:", err)
+
+		// PrasePayload(packet[header.HeaderLen:header.PacketLen])
+
+	} else {
+		fmt.Printf("[%s] 分包, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
+	}
+
+}
+
+func ParseJson(payload []byte) {
+	var body map[string]interface{}
+	if err := json.Unmarshal(payload, &body); err == nil {
+		cmd, _ := body["cmd"].(string)
+		switch cmd {
+		case "DANMU_MSG":
+			// 弹幕消息
+			// fmt.Printf("[%s] [%s] %s(%f): %s\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[2].([]interface{})[0], body["info"].([]interface{})[1])
+			slog.Info(cmd, body["info"].([]interface{})[2].([]interface{})[1], body["info"].([]interface{})[1])
+			debugLogger.Debug(cmd, "body[info]", body["info"])
+		case "INTERACT_WORD_V2":
+			// 进入直播间
+			debugLogger.Debug(cmd, "body", body)
+		case "ENTRY_EFFECT":
+			// 进场特效（不处理）
+			debugLogger.Debug(cmd)
+		case "LIVE":
+			// 开播
+			debugLogger.Debug(cmd, "body", body)
+		case "PREPARING":
+			// 下播
+			debugLogger.Debug(cmd, "body", body)
+		case "SEND_GIFT":
+			// 礼物
+			debugLogger.Debug(cmd, "body", body)
+		case "PREPASUPER_CHAT_MESSAGERING":
+			// SC
+			debugLogger.Debug(cmd, "body", body)
+		default:
+			// fmt.Printf("[%s] [%s]\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd)
+			debugLogger.Debug(cmd)
 		}
+	} else {
+		slog.Error("Parse Json Error", "err", err)
 	}
 }

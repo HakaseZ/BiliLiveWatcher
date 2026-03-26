@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -50,7 +51,7 @@ func GetDanmuInfo(roomID int) (string, []Host, error) {
 	baseURL := "https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo"
 	reqURL := fmt.Sprintf("%s?%s", baseURL, query.Encode())
 
-	fmt.Println("Request URL: ", reqURL) // 打印请求URL以供调试
+	// fmt.Println("Request URL: ", reqURL) // 打印请求URL以供调试
 
 	// 发送HTTP请求
 
@@ -73,13 +74,14 @@ func GetDanmuInfo(roomID int) (string, []Host, error) {
 
 	defer response.Body.Close()
 
-	if danmuInfoRes.Code == 0 {
-		fmt.Println("Token: ", danmuInfoRes.Data.Token)
-		for _, host := range danmuInfoRes.Data.HostList {
-			fmt.Printf("Host: %s, Port: %d, WSSPort: %d, WSPort: %d\n", host.Host, host.Port, host.WSSPort, host.WSPort)
-		}
-	} else {
-		fmt.Printf("Error fetching danmu info, code: %d\n", danmuInfoRes.Code)
+	if danmuInfoRes.Code != 0 {
+		// fmt.Println("Token: ", danmuInfoRes.Data.Token)
+		// for _, host := range danmuInfoRes.Data.HostList {
+		// 	fmt.Printf("Host: %s, Port: %d, WSSPort: %d, WSPort: %d\n", host.Host, host.Port, host.WSSPort, host.WSPort)
+		// }
+		// } else {
+		// fmt.Printf("Error fetching danmu info, code: %d\n", danmuInfoRes.Code)
+		slog.Error("Error fetching danmu info", "Code", danmuInfoRes.Code)
 	}
 
 	return danmuInfoRes.Data.Token, danmuInfoRes.Data.HostList, nil
