@@ -1,0 +1,7 @@
+# config.yml
+credential:
+  Cookie: 
+
+watcher:
+  - roomid: 123
+    url: 
