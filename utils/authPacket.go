@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 )
@@ -38,9 +37,6 @@ func MakeAuthPacket(roomID int, cookie string, token string) []byte {
 	DedeUserID, _ := req.Cookie("DedeUserID")
 	uid, _ := strconv.ParseInt(DedeUserID.Value, 10, 64)
 	buvid3, _ := req.Cookie("buvid3")
-
-	fmt.Println(DedeUserID.Value)
-	fmt.Println(buvid3.Value)
 
 	payload := AuthPayload{
 		UID:      int(uid),
