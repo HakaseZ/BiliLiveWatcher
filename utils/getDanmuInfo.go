@@ -16,7 +16,7 @@ type Host struct {
 	WSPort  int    `json:"ws_port"`
 }
 
-func GetDanmuInfo(roomID int) (string, []Host, error) {
+func GetDanmuInfo(roomID int, cookie string) (string, []Host, error) {
 	// 获取弹幕服务器配置
 	//
 	// Args:
@@ -59,8 +59,9 @@ func GetDanmuInfo(roomID int) (string, []Host, error) {
 	if err != nil {
 		// handle error
 	}
-	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	request.Header.Set("Cookie", cookie)
 	request.Header.Set("Referer", "https://www.bilibili.com")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
 	client := &http.Client{}
 	response, err := client.Do(request)

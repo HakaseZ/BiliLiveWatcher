@@ -16,5 +16,8 @@ func deal_DANMU_MSG(msg map[string]interface{}) {
 	var body DANMU_MSG
 	mapstructure.Decode(msg, &body)
 
-	slog.Info("DANMU_MSG", body.Info[2].([]interface{})[1], body.Info[1])
+	username := body.Info[2].([]interface{})[1]
+	UID := int64(body.Info[2].([]interface{})[0].(float64))
+
+	slog.Info("DANMU_MSG", "username", username, "UID", UID, "danmu", body.Info[1])
 }

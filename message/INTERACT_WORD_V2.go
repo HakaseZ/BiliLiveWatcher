@@ -3,10 +3,10 @@ package message
 import (
 	"encoding/base64"
 	"log/slog"
-	"os"
-	"time"
 
+	mpb "github.com/HakaseZ/BiliLiveWatcher/message/pb"
 	"github.com/mitchellh/mapstructure"
+	"google.golang.org/protobuf/proto"
 )
 
 type INTERACT_WORD_V2 struct {
@@ -17,24 +17,16 @@ type INTERACT_WORD_V2 struct {
 	} `mapstructure:"data"`
 }
 
-func init() {
-	// 初始化时间设置
-	var err error
-	time.Local, err = time.LoadLocation("Asia/Shanghai")
-	if err != nil {
-		time.Local = time.FixedZone("CST", 8*3600)
-	}
-
-	//初始化全局logger
-	debuglogfile, _ := os.OpenFile(".tmp/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
-}
-
 func deal_INTERACT_WORD_V2(msg map[string]interface{}) {
 	var body INTERACT_WORD_V2
 	mapstructure.Decode(msg, &body)
 
 	pb, _ := base64.StdEncoding.DecodeString(body.Data.Pb)
-	debugLogger.Debug("INTERACT_WORD_V2", "pb", string(pb))
+	info := &mpb.INTERACT_WORD_V2{}
+	proto.Unmarshal(pb, info)
+
+	username := info.UserInfo.Base.Uname
+	UID := int64(info.Uid)
+
+	slog.Info("INTERACT_WORD_V2", "username", username, "UID", UID, "face", info.UserInfo.Base.Face)
 }

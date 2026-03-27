@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"strconv"
 )
 
 // AuthPayload 认证包的 JSON 结构
@@ -18,7 +21,7 @@ type AuthPayload struct {
 }
 
 // MakeAuthPacket 构造 B 站二进制认证包
-func MakeAuthPacket(roomID int, token string) []byte {
+func MakeAuthPacket(roomID int, cookie string, token string) []byte {
 	// 构造心跳包
 	//
 	// Args:
@@ -29,14 +32,24 @@ func MakeAuthPacket(roomID int, token string) []byte {
 	// 	[]byte: 构造好的二进制认证包，可以直接发送到 WebSocket服务器
 
 	// 1. 准备 Payload
+	req, _ := http.NewRequest("GET", "http://example.com", nil)
+	req.Header.Set("Cookie", cookie)
+
+	DedeUserID, _ := req.Cookie("DedeUserID")
+	uid, _ := strconv.ParseInt(DedeUserID.Value, 10, 64)
+	buvid3, _ := req.Cookie("buvid3")
+
+	fmt.Println(DedeUserID.Value)
+	fmt.Println(buvid3.Value)
+
 	payload := AuthPayload{
-		UID:      0,
+		UID:      int(uid),
 		RoomID:   roomID,
 		ProtoVer: 3,
 		Platform: "web",
 		Type:     2,
 		Key:      token,
-		BuvID:    "3E099D19-090A-6CD9-57DE-BDC1993E947C50111infoc",
+		BuvID:    buvid3.Value,
 	}
 
 	payloadBytes, _ := json.Marshal(payload)

@@ -131,19 +131,19 @@ func ParseJson(payload []byte) {
 		case "ENTRY_EFFECT":
 			// 进场特效（不处理）
 
-		// 	// debugLogger.Debug(cmd)
-		// case "LIVE":
-		// 	// 开播
-		// 	debugLogger.Debug(cmd, "body", body)
-		// case "PREPARING":
-		// 	// 下播
-		// 	debugLogger.Debug(cmd, "body", body)
-		// case "SEND_GIFT":
-		// 	// 礼物
-		// 	debugLogger.Debug(cmd, "body", body)
-		// case "PREPASUPER_CHAT_MESSAGERING":
-		// 	// SC
-		// 	debugLogger.Debug(cmd, "body", body)
+			// debugLogger.Debug(cmd)
+		case "LIVE":
+			// 开播
+			debugLogger.Debug("LIVE", "body", msg)
+		case "PREPARING":
+			// 下播
+			debugLogger.Debug("PREPARING", "body", msg)
+		case "SEND_GIFT":
+			// 礼物
+			debugLogger.Debug("SEND_GIFT", "body", msg)
+		case "PREPASUPER_CHAT_MESSAGERING":
+			// SC
+			debugLogger.Debug("PREPASUPER_CHAT_MESSAGERING", "body", msg)
 		default:
 			// fmt.Printf("[%s] [%s]\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), cmd)
 			// debugLogger.Debug(cmd)

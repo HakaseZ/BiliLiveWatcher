@@ -21,7 +21,21 @@ import (
 	"github.com/HakaseZ/BiliLiveWatcher/message"
 	"github.com/HakaseZ/BiliLiveWatcher/utils"
 	"github.com/gorilla/websocket"
+
+	"gopkg.in/yaml.v3"
 )
+
+type WatcherConfig struct {
+	RoomId int    `yaml:"roomid"`
+	URL    string `yaml:"url"`
+}
+
+type Config struct {
+	Credential struct {
+		Cookie string `yaml:"cookie"`
+	} `yaml:"credential"`
+	Watchers []WatcherConfig `yaml:"watcher"`
+}
 
 func init() {
 	// 初始化时间设置
@@ -41,13 +55,17 @@ func init() {
 
 func main() {
 
-	roomID := 92613
-	token, hostList, _ := utils.GetDanmuInfo(roomID)
-	connectWebSocket(roomID, token, hostList[0].Host)
+	rawconf, _ := os.ReadFile(".config/config.yml")
+	conf := &Config{}
+	_ = yaml.Unmarshal(rawconf, conf)
+
+	roomID := conf.Watchers[0].RoomId
+	token, hostList, _ := utils.GetDanmuInfo(roomID, conf.Credential.Cookie)
+	connectWebSocket(roomID, conf.Credential.Cookie, token, hostList[0].Host)
 	select {}
 }
 
-func connectWebSocket(roomID int, token string, host string) {
+func connectWebSocket(roomID int, cookie string, token string, host string) {
 
 	wsURL := fmt.Sprintf("wss://%s/sub", host)
 	slog.Info("正在连接弹幕服务器", "URL", wsURL)
@@ -63,7 +81,7 @@ func connectWebSocket(roomID int, token string, host string) {
 	defer conn.Close()
 
 	// 2. 发送认证包
-	authPacket := utils.MakeAuthPacket(roomID, token)
+	authPacket := utils.MakeAuthPacket(roomID, cookie, token)
 	err = conn.WriteMessage(websocket.BinaryMessage, authPacket)
 	if err != nil {
 		slog.Error("Send Auth Error", "err", err)
