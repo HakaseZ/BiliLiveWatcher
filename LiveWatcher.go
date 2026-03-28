@@ -26,8 +26,8 @@ import (
 )
 
 type WatcherConfig struct {
-	RoomId int    `yaml:"roomid"`
-	URL    string `yaml:"url"`
+	RoomId int      `yaml:"roomid"`
+	URL    []string `yaml:"url"`
 }
 
 type Config struct {
@@ -54,14 +54,20 @@ func init() {
 }
 
 func main() {
-
+	// 读取配置
 	rawconf, _ := os.ReadFile(".config/config.yml")
 	conf := &Config{}
 	_ = yaml.Unmarshal(rawconf, conf)
 
-	roomID := conf.Watchers[0].RoomId
-	token, hostList, _ := utils.GetDanmuInfo(roomID, conf.Credential.Cookie)
-	connectWebSocket(roomID, conf.Credential.Cookie, token, hostList[0].Host)
+	for _, watcher := range conf.Watchers {
+		// 补全配置信息
+		// 启动通知管理器
+		// 启动监听器
+		roomID, UID := utils.GetRoomPlayInfo(watcher.RoomId)
+		go utils.Notifier(roomID, UID)
+		token, hostList, _ := utils.GetDanmuInfo(roomID, conf.Credential.Cookie)
+		connectWebSocket(roomID, conf.Credential.Cookie, token, hostList[0].Host)
+	}
 	select {}
 }
 
