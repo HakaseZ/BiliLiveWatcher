@@ -1,41 +1,15 @@
-// 构造Https请求进行握手，并连接websocket弹幕服务器
-//
-// 测试房间号
-// 92613 API
-// uri = wss://host.port/sub
-// getDanmuInfo_uri = https://api.live.bilibili.com/xlive/web-room/v1/index/getDanmuInfo
-// nav_uri = https://api.bilibili.com/x/web-interface/nav
-//
-// 步骤：通过KeysUrl获取WbiKeys
-
 package main
 
 import (
-	"fmt"
+	"encoding/json"
 	"io"
 	"log/slog"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/HakaseZ/BiliLiveWatcher/message"
-	"github.com/HakaseZ/BiliLiveWatcher/utils"
-	"github.com/gorilla/websocket"
-
-	"gopkg.in/yaml.v3"
+	"github.com/HakaseZ/BiliLiveWatcher/model"
+	"github.com/HakaseZ/BiliLiveWatcher/watchers"
 )
-
-type WatcherConfig struct {
-	RoomId int      `yaml:"roomid"`
-	URL    []string `yaml:"url"`
-}
-
-type Config struct {
-	Credential struct {
-		Cookie string `yaml:"cookie"`
-	} `yaml:"credential"`
-	Watchers []WatcherConfig `yaml:"watcher"`
-}
 
 func init() {
 	// 初始化时间设置
@@ -55,58 +29,37 @@ func init() {
 
 func main() {
 	// 读取配置
-	rawconf, _ := os.ReadFile(".config/config.yml")
-	conf := &Config{}
-	_ = yaml.Unmarshal(rawconf, conf)
-
-	for _, watcher := range conf.Watchers {
-		// 补全配置信息
-		// 启动通知管理器
-		// 启动监听器
-		roomID, UID := utils.GetRoomPlayInfo(watcher.RoomId)
-		go utils.Notifier(roomID, UID)
-		token, hostList, _ := utils.GetDanmuInfo(roomID, conf.Credential.Cookie)
-		connectWebSocket(roomID, conf.Credential.Cookie, token, hostList[0].Host)
+	rConfig, err := os.ReadFile(".config/config.json")
+	if err != nil {
+		slog.Error("Error load config file.", "Error", err)
 	}
+	var conf model.Config
+	err = json.Unmarshal(rConfig, &conf)
+	if err != nil {
+		slog.Error("Error Unmarshal config file.", "Error", err)
+	}
+
+	// 实例化消息chan
+
+	// 实例化
+	for _, wconf := range conf.LiveWatcher {
+		// wconf := wconf
+		// 去重并注册 Notifier
+		// 构造 Watcher-Notifier map
+		// 实例化 Watcher 协程
+		// var w watchers.LiveWatcher
+		watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+		go watcher.Run()
+	}
+
 	select {}
-}
+	// 消息处理逻辑
 
-func connectWebSocket(roomID int, cookie string, token string, host string) {
+	// for _, watcher := range conf.LiveWatcher {
+	// 	go watcher.InitWatcher(conf.Credential.Cookie)
+	// }
 
-	wsURL := fmt.Sprintf("wss://%s/sub", host)
-	slog.Info("正在连接弹幕服务器", "URL", wsURL)
-
-	// 1. 建立连接
-	header := http.Header{}
-	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	header.Set("Referer", "https://www.bilibili.com")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
-	if err != nil {
-		fmt.Println("Dial error:", err)
-	}
-	defer conn.Close()
-
-	// 2. 发送认证包
-	authPacket := utils.MakeAuthPacket(roomID, cookie, token)
-	err = conn.WriteMessage(websocket.BinaryMessage, authPacket)
-	if err != nil {
-		slog.Error("Send Auth Error", "err", err)
-	} else {
-		slog.Info("弹幕服务器认证成功")
-	}
-
-	// 发送心跳包的协程
-	go utils.SendHeartbeatPacket(conn)
-
-	// 3. 处理消息流
-	messageCounter := 0
-	for {
-		messageCounter++
-		_, packet, err := conn.ReadMessage()
-		if err != nil {
-			fmt.Println("Read error:", err)
-			break
-		}
-		message.ParsePacket(packet, messageCounter)
-	}
+	// for _, notifier := range conf.Notifier {
+	//
+	// }
 }

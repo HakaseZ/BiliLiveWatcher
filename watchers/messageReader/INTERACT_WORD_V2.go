@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"log/slog"
 
-	mpb "github.com/HakaseZ/BiliLiveWatcher/message/pb"
+	mpb "github.com/HakaseZ/BiliLiveWatcher/watchers/messageReader/pb"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/proto"
 )

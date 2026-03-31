@@ -38,7 +38,7 @@ func init() {
 	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
 
-func ParsePacket(packet []byte, packetId int) {
+func ParsePacket(packet []byte) {
 	// 调试过程中分析每个数据包
 	// Args:
 	// 	packet: 原始字节流数据包
@@ -65,8 +65,7 @@ func ParsePacket(packet []byte, packetId int) {
 	}
 	if len(packet) > int(header.PacketLen) {
 		// fmt.Printf("[%s] 粘包, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
-		ParsePacket(packet[:header.PacketLen], packetId)
-		ParsePacket(packet[header.PacketLen:], packetId*100)
+
 	} else if len(packet) == int(header.PacketLen) {
 		switch header.Ver {
 		case 0:
@@ -86,7 +85,7 @@ func ParsePacket(packet []byte, packetId int) {
 			// fmt.Printf("[%s] Brotli, Header.PacketLen:%d, RealPacketLen:%d\n", time.Now().In(cstZone).Format("2006-01-02 15:04:05"), header.PacketLen, len(packet))
 			reader := brotli.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
 			decompressed, _ := io.ReadAll(reader)
-			ParsePacket(decompressed, packetId)
+			ParsePacket(decompressed)
 		}
 
 		// PrasePayload(packet[header.HeaderLen:header.PacketLen])
