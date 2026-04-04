@@ -21,20 +21,18 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				slog.Warn("重复收到开播事件")
 			} else {
 				onStream = true
-				msg := m.Msg.(model.LiveMsg)
 				n.Title = fmt.Sprintf("%s开播了！", nconfig.Streamer)
 				n.BodyText = ""
-				n.URL = fmt.Sprintf("bilibili://live/%d", msg.RoomID)
+				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
 				n.Send()
 			}
 		case "PREPARING":
 			if onStream {
 				onStream = false
-				msg := m.Msg.(model.LiveMsg)
 				n.Title = fmt.Sprintf("%s下播了。", nconfig.Streamer)
 				n.BodyText = ""
-				n.URL = fmt.Sprintf("bilibili://live/%d", msg.RoomID)
+				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
 				n.Send()
 			} else {
