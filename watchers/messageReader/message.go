@@ -32,7 +32,7 @@ func init() {
 		time.Local = time.FixedZone("CST", 8*3600)
 	}
 
-	//初始化全局logger
+	//初始化debug logger
 	debuglogfile, _ := os.OpenFile("logs/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 
 	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))

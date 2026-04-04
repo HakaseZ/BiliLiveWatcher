@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"os"
 	"time"
@@ -22,16 +21,14 @@ func init() {
 	}
 
 	//初始化全局logger
-	logfile, _ := os.OpenFile("logs/BiliLiveWatcher.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-	logger := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logfile), &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
 	slog.Info("系统初始化完成")
 }
 
 func main() {
 	// 读取配置
-	rConfig, err := os.ReadFile(".config/config.json")
+	rConfig, err := os.ReadFile(".config.json")
 	if err != nil {
 		slog.Error("Error load config file.", "Error", err)
 	}

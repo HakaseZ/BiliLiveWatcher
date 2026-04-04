@@ -1,0 +1,13 @@
+services:
+  BiliLiveWatcher:
+    build: .
+    container_name: BiliLiveWatcher
+    restart: always
+    volumes:
+      - ./.config/config.json:/root/config.json
+      - ./logs:/root/logs
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m" 
+        max-file: "3"
