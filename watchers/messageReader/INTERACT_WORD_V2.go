@@ -2,7 +2,6 @@ package message
 
 import (
 	"encoding/base64"
-	"log/slog"
 
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	mpb "github.com/HakaseZ/BiliLiveWatcher/watchers/messageReader/pb"
@@ -34,7 +33,7 @@ func deal_INTERACT_WORD_V2(msg map[string]interface{}) model.EnterRoomMsg {
 	m.User.Username = username
 	m.User.Face = info.UserInfo.Base.Face
 
-	slog.Info("INTERACT_WORD_V2", "username", username, "UID", UID, "face", info.UserInfo.Base.Face)
+	// slog.Info("INTERACT_WORD_V2", "username", username, "UID", UID, "face", info.UserInfo.Base.Face)
 
 	return m
 }

@@ -33,7 +33,7 @@ func init() {
 	}
 
 	//初始化全局logger
-	debuglogfile, _ := os.OpenFile(".tmp/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	debuglogfile, _ := os.OpenFile("logs/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 
 	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }

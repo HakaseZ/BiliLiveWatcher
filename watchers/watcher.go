@@ -2,10 +2,12 @@ package watchers
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -51,9 +53,9 @@ func NewWatcher(roomid int, cookie string) LiveWatcher {
 	return w
 }
 
-func (w LiveWatcher) Run(c chan model.Metric) {
+func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 	wsURL := fmt.Sprintf("wss://%s/sub", w.wsHosts[0].Host) //使用默认服务器
-	slog.Info("正在连接弹幕服务器", "URL", wsURL)
+	slog.Info("正在连接弹幕服务器", "RoomID", w.roomID, "URL", wsURL)
 
 	// 建立连接
 	header := http.Header{}
@@ -70,6 +72,14 @@ func (w LiveWatcher) Run(c chan model.Metric) {
 	w.sendAuthPacket()
 	go w.sendHeartbeatPacket()
 
+	go func() {
+		<-ctx.Done()
+		slog.Info("收到重连信号，关闭当前WebSocket连接")
+		sleepTime := time.Duration(rand.Intn(10)) * time.Second
+		time.Sleep(sleepTime)
+		w.conn.Close()
+	}()
+	defer close(c)
 	for {
 		_, packet, err := w.conn.ReadMessage()
 		if err != nil {

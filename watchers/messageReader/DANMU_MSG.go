@@ -44,7 +44,7 @@ func deal_DANMU_MSG(msg map[string]interface{}) model.DanmuMsg {
 	m.User.Username = dmsg.UserInfo.BaseInfo.Name
 	m.User.Face = dmsg.UserInfo.BaseInfo.Face
 
-	slog.Info("DANMU_MSG", "username", dmsg.UserInfo.BaseInfo.Name, "UID", int64(dmsg.UserInfo.UID), "face", dmsg.UserInfo.BaseInfo.Face, "danmu", body.Info[1])
+	// slog.Info("DANMU_MSG", "username", dmsg.UserInfo.BaseInfo.Name, "UID", int64(dmsg.UserInfo.UID), "face", dmsg.UserInfo.BaseInfo.Face, "danmu", body.Info[1])
 
 	return m
 }

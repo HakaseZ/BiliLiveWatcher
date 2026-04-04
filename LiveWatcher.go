@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -21,7 +22,7 @@ func init() {
 	}
 
 	//初始化全局logger
-	logfile, _ := os.OpenFile(".tmp/BiliLiveWatcher.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	logfile, _ := os.OpenFile("logs/BiliLiveWatcher.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 
 	logger := slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logfile), &slog.HandlerOptions{Level: slog.LevelDebug}))
 	slog.SetDefault(logger)
@@ -41,17 +42,29 @@ func main() {
 	}
 
 	// 实例化监听器
-	for _, wconf := range conf.LiveWatcher {
-		c := make(chan model.Metric)
-		// wconf := wconf
-		// 去重并注册 Notifier
-		// 构造 Watcher-Notifier map
-		// 实例化 Watcher 协程
-		// var w watchers.LiveWatcher
-		go manager.Manager(c, wconf)
-		watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-		go watcher.Run(c)
-	}
+	for {
+		ticker := time.NewTicker(24 * time.Hour)
+		ctx, cancel := context.WithCancel(context.Background())
+		for _, wconf := range conf.LiveWatcher {
 
+			// 1.初始化chan
+			// 2.初始化Manager
+			// 3.初始化Watcher
+			c := make(chan model.Metric)
+			// wconf := wconf
+			// 去重并注册 Notifier
+			// 构造 Watcher-Notifier map
+			// 实例化 Watcher 协程
+			// var w watchers.LiveWatcher
+			go manager.Manager(c, wconf)
+			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+			go watcher.Run(ctx, c)
+		}
+		<-ticker.C
+		slog.Info("正在重新启动监听器")
+		cancel()
+		ticker.Stop()
+		time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
+	}
 	select {}
 }

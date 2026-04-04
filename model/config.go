@@ -12,6 +12,7 @@ type Credential struct {
 type LiveWatcher struct {
 	Roomid   int      `json:"roomid"`
 	Event    Event    `json:"event"`
+	Streamer string   `json:"streamer"`
 	Notifier Notifier `json:"notifier"`
 }
 
