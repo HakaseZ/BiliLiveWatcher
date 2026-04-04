@@ -267,7 +267,7 @@ func (w LiveWatcher) sendHeartbeatPacket() {
 			slog.Error("Send Hearbeat Error", "err", err)
 			return // 发生错误跳出循环，协程结束
 		} else {
-			slog.Info("心跳包已发送")
+			// slog.Info("心跳包已发送")
 		}
 	}
 }
