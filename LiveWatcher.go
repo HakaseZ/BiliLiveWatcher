@@ -28,7 +28,7 @@ func init() {
 
 func main() {
 	// 读取配置
-	rConfig, err := os.ReadFile(".config.json")
+	rConfig, err := os.ReadFile("config.json")
 	if err != nil {
 		slog.Error("Error load config file.", "Error", err)
 	}
