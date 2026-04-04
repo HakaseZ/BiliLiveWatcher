@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/HakaseZ/BiliLiveWatcher/manager"
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/watchers"
 )
@@ -39,27 +40,18 @@ func main() {
 		slog.Error("Error Unmarshal config file.", "Error", err)
 	}
 
-	// 实例化消息chan
-
-	// 实例化
+	// 实例化监听器
 	for _, wconf := range conf.LiveWatcher {
+		c := make(chan model.Metric)
 		// wconf := wconf
 		// 去重并注册 Notifier
 		// 构造 Watcher-Notifier map
 		// 实例化 Watcher 协程
 		// var w watchers.LiveWatcher
+		go manager.Manager(c, wconf)
 		watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-		go watcher.Run()
+		go watcher.Run(c)
 	}
 
 	select {}
-	// 消息处理逻辑
-
-	// for _, watcher := range conf.LiveWatcher {
-	// 	go watcher.InitWatcher(conf.Credential.Cookie)
-	// }
-
-	// for _, notifier := range conf.Notifier {
-	//
-	// }
 }

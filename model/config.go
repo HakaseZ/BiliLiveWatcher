@@ -16,10 +16,10 @@ type LiveWatcher struct {
 }
 
 type Event struct {
-	LIVE      bool  `json:"LIVE"`
-	PREPARING bool  `json:"PREPARING"`
-	DANMU_MSG []int `json:"DANMU_MSG"`
-	INTER     []int `json:"INTER"`
+	LIVE      bool    `json:"LIVE"`
+	PREPARING bool    `json:"PREPARING"`
+	DANMU_MSG []int64 `json:"DANMU_MSG"`
+	INTER     []int64 `json:"INTER"`
 }
 
 type Notifier struct {

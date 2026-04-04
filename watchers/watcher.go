@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/utils"
 	m "github.com/HakaseZ/BiliLiveWatcher/watchers/messageReader"
 	"github.com/gorilla/websocket"
@@ -50,7 +51,7 @@ func NewWatcher(roomid int, cookie string) LiveWatcher {
 	return w
 }
 
-func (w LiveWatcher) Run() {
+func (w LiveWatcher) Run(c chan model.Metric) {
 	wsURL := fmt.Sprintf("wss://%s/sub", w.wsHosts[0].Host) //使用默认服务器
 	slog.Info("正在连接弹幕服务器", "URL", wsURL)
 
@@ -68,12 +69,17 @@ func (w LiveWatcher) Run() {
 	// 发送认证和心跳包
 	w.sendAuthPacket()
 	go w.sendHeartbeatPacket()
+
 	for {
 		_, packet, err := w.conn.ReadMessage()
 		if err != nil {
 			slog.Error("Error read message.", "Error", err)
 		}
-		m.ParsePacket(packet)
+		messgae := m.ParsePacket(packet)
+		if messgae.Mtype != "" {
+			messgae.M_RoomID = int64(w.roomID)
+			c <- messgae
+		}
 	}
 }
 
