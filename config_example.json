@@ -1,0 +1,22 @@
+{
+    "credential":{
+        "cookie":""
+    },
+    "notifier":[
+        {
+            "roomid":1,
+            "bark":[]
+        },
+        {
+            "roomid":233,
+            "bark":[
+                "https://api.day.app/",
+                "https://api.day.app/"
+            ]
+        },
+        {
+            "roomid":2233,
+            "others":[]
+        }
+    ]
+}

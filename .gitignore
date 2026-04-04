@@ -2,3 +2,5 @@
 .devcontainer
 .tmp
 .vscode
+
+logs
