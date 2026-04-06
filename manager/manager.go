@@ -16,7 +16,8 @@ import (
 func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
-	onStream, streamerName, streamerIcon, _ := room_get_info(nconfig.Roomid)
+	onStream, _ := room_get_info(nconfig.Roomid)
+	streamerName, streamerIcon := get_anchor_in_room(nconfig.Roomid)
 	for m := range c {
 		switch m.Mtype {
 		case "LIVE":
@@ -27,7 +28,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 					onStream = true
 					n.Icon = streamerIcon
 					n.Title = fmt.Sprintf("%s开播了！", streamerName)
-					_, _, _, n.BodyText = room_get_info(nconfig.Roomid)
+					_, n.BodyText = room_get_info(nconfig.Roomid)
 					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 					slog.Info("发送通知", "通知内容", n.Title)
 					n.Send()
@@ -39,7 +40,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 					onStream = false
 					n.Icon = ""
 					n.Title = fmt.Sprintf("%s下播了。", streamerName)
-					_, _, _, n.BodyText = room_get_info(nconfig.Roomid)
+					_, n.BodyText = room_get_info(nconfig.Roomid)
 					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 					slog.Info("发送通知", "通知内容", n.Title)
 					n.Send()
@@ -71,7 +72,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	}
 }
 
-func room_get_info(roomid int) (bool, string, string, string) {
+func room_get_info(roomid int) (bool, string) {
 	type RoomGetInfoResponse struct {
 		Code int `json:"code"`
 		Data struct {
@@ -99,23 +100,31 @@ func room_get_info(roomid int) (bool, string, string, string) {
 	json.NewDecoder(response.Body).Decode(&roomInfoRes)
 	defer response.Body.Close()
 
+	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.Title
+}
+
+func get_anchor_in_room(roomid int) (string, string) {
 	type GetAnchorInRoomResponse struct {
 		Code int `json:"code"`
-		Info struct {
-			UID      int    `json:"uid"`
-			Username string `json:"uname"`
-			Face     string `json:"face"`
-		} `json:"info"`
+		Data struct {
+			Info struct {
+				UID      int    `json:"uid"`
+				Username string `json:"uname"`
+				Face     string `json:"face"`
+			} `json:"info"`
+		} `json:"data"`
 	}
-	baseURL = "https://api.live.bilibili.com/room/v1/Room/get_anchor_in_room"
-	query = url.Values{}
+	baseURL := "https://api.live.bilibili.com/room/v1/Room/get_anchor_in_room"
+	query := url.Values{}
+	sid := strconv.Itoa(roomid)
 	query.Add("room_id", sid)
-	reqURL = fmt.Sprintf("%s?%s", baseURL, query.Encode())
-	request, _ = http.NewRequest("GET", reqURL, nil)
+	reqURL := fmt.Sprintf("%s?%s", baseURL, query.Encode())
+	request, _ := http.NewRequest("GET", reqURL, nil)
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	response, err = client.Do(request)
+	client := &http.Client{}
+	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get anchor in room info. ", "Errors", err)
 	}
@@ -123,5 +132,5 @@ func room_get_info(roomid int) (bool, string, string, string) {
 	var anchorInfoRes GetAnchorInRoomResponse
 	json.NewDecoder(response.Body).Decode(&anchorInfoRes)
 	defer response.Body.Close()
-	return roomInfoRes.Data.LiveStatus == 1, anchorInfoRes.Info.Username, anchorInfoRes.Info.Face, roomInfoRes.Data.Title
+	return anchorInfoRes.Data.Info.Username, anchorInfoRes.Data.Info.Face
 }
