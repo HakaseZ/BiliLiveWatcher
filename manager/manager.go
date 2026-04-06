@@ -38,7 +38,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			if nconfig.Event.PREPARING {
 				if onStream {
 					onStream = false
-					n.Icon = ""
+					n.Icon = streamerIcon
 					n.Title = fmt.Sprintf("%s下播了。", streamerName)
 					_, _, n.BodyText = room_get_info(nconfig.Roomid)
 					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
