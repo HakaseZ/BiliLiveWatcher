@@ -83,7 +83,13 @@ func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 	for {
 		_, packet, err := w.conn.ReadMessage()
 		if err != nil {
-			slog.Error("Error read message.", "Error", err)
+			select {
+			case <-ctx.Done():
+				slog.Info("WebSocket连接已关闭")
+			default:
+				slog.Error("Error read message.", "Error", err)
+			}
+			return
 		}
 		messgae := m.ParsePacket(packet)
 		if messgae.Mtype != "" {
