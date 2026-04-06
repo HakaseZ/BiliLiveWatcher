@@ -16,8 +16,8 @@ import (
 func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
-	onStream, _ := room_get_info(nconfig.Roomid)
-	streamerName, streamerIcon := get_anchor_in_room(nconfig.Roomid)
+	onStream, streamerUID, _ := room_get_info(nconfig.Roomid)
+	streamerName, streamerIcon := get_master_info(streamerUID)
 	for m := range c {
 		switch m.Mtype {
 		case "LIVE":
@@ -28,7 +28,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 					onStream = true
 					n.Icon = streamerIcon
 					n.Title = fmt.Sprintf("%s开播了！", streamerName)
-					_, n.BodyText = room_get_info(nconfig.Roomid)
+					_, _, n.BodyText = room_get_info(nconfig.Roomid)
 					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 					slog.Info("发送通知", "通知内容", n.Title)
 					n.Send()
@@ -40,7 +40,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 					onStream = false
 					n.Icon = ""
 					n.Title = fmt.Sprintf("%s下播了。", streamerName)
-					_, n.BodyText = room_get_info(nconfig.Roomid)
+					_, _, n.BodyText = room_get_info(nconfig.Roomid)
 					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 					slog.Info("发送通知", "通知内容", n.Title)
 					n.Send()
@@ -52,8 +52,8 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			msg := m.Msg.(model.EnterRoomMsg)
 			if slices.Contains(nconfig.Event.INTER, msg.User.UID) {
 				n.Icon = msg.Face
-				n.Title = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, nconfig.Streamer)
-				n.BodyText = ""
+				n.Title = fmt.Sprintf("%s来了。", msg.Username)
+				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
 				n.Send()
@@ -62,7 +62,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			msg := m.Msg.(model.DanmuMsg)
 			if slices.Contains(nconfig.Event.DANMU_MSG, msg.User.UID) {
 				n.Icon = msg.Face
-				n.Title = fmt.Sprintf("%s在%s的直播间发了一条弹幕", msg.Username, nconfig.Streamer)
+				n.Title = fmt.Sprintf("%s在%s的直播间发了一条弹幕", msg.Username, streamerName)
 				n.BodyText = msg.Danmu
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
@@ -72,7 +72,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	}
 }
 
-func room_get_info(roomid int) (bool, string) {
+func room_get_info(roomid int) (bool, int, string) {
 	type RoomGetInfoResponse struct {
 		Code int `json:"code"`
 		Data struct {
@@ -100,11 +100,11 @@ func room_get_info(roomid int) (bool, string) {
 	json.NewDecoder(response.Body).Decode(&roomInfoRes)
 	defer response.Body.Close()
 
-	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.Title
+	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.UID, roomInfoRes.Data.Title
 }
 
-func get_anchor_in_room(roomid int) (string, string) {
-	type GetAnchorInRoomResponse struct {
+func get_master_info(uid int) (string, string) {
+	type GetMasterInfoResponse struct {
 		Code int `json:"code"`
 		Data struct {
 			Info struct {
@@ -114,10 +114,10 @@ func get_anchor_in_room(roomid int) (string, string) {
 			} `json:"info"`
 		} `json:"data"`
 	}
-	baseURL := "https://api.live.bilibili.com/room/v1/Room/get_anchor_in_room"
+	baseURL := "https://api.live.bilibili.com/live_user/v1/Master/info"
 	query := url.Values{}
-	sid := strconv.Itoa(roomid)
-	query.Add("room_id", sid)
+	sid := strconv.Itoa(uid)
+	query.Add("roomid", sid)
 	reqURL := fmt.Sprintf("%s?%s", baseURL, query.Encode())
 	request, _ := http.NewRequest("GET", reqURL, nil)
 	request.Header.Set("Referer", "https://www.bilibili.com")
@@ -129,8 +129,8 @@ func get_anchor_in_room(roomid int) (string, string) {
 		slog.Error("Error get anchor in room info. ", "Errors", err)
 	}
 
-	var anchorInfoRes GetAnchorInRoomResponse
-	json.NewDecoder(response.Body).Decode(&anchorInfoRes)
+	var masterInfoRes GetMasterInfoResponse
+	json.NewDecoder(response.Body).Decode(&masterInfoRes)
 	defer response.Body.Close()
-	return anchorInfoRes.Data.Info.Username, anchorInfoRes.Data.Info.Face
+	return masterInfoRes.Data.Info.Username, masterInfoRes.Data.Info.Face
 }
