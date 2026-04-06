@@ -117,7 +117,7 @@ func get_master_info(uid int) (string, string) {
 	baseURL := "https://api.live.bilibili.com/live_user/v1/Master/info"
 	query := url.Values{}
 	sid := strconv.Itoa(uid)
-	query.Add("roomid", sid)
+	query.Add("uid", sid)
 	reqURL := fmt.Sprintf("%s?%s", baseURL, query.Encode())
 	request, _ := http.NewRequest("GET", reqURL, nil)
 	request.Header.Set("Referer", "https://www.bilibili.com")
