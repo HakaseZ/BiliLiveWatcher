@@ -274,7 +274,7 @@ func (w LiveWatcher) sendHeartbeatPacket(ctx context.Context) {
 			case <-ctx.Done():
 				slog.Info("WebSocket连接已关闭，停止发送心跳包")
 			default:
-				slog.Error("Send Hearbeat Error", "err", err)
+				slog.Error("Send Hearbeat Error", "err", err, "RoomID", w.roomID)
 			}
 			return // 发生错误跳出循环，协程结束
 		} else {
