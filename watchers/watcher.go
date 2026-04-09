@@ -70,7 +70,7 @@ func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 	defer w.conn.Close()
 	// 发送认证和心跳包
 	w.sendAuthPacket()
-	go w.sendHeartbeatPacket()
+	go w.sendHeartbeatPacket(ctx)
 
 	go func() {
 		<-ctx.Done()
@@ -253,7 +253,7 @@ func (w LiveWatcher) sendAuthPacket() {
 }
 
 // 发送心跳包
-func (w LiveWatcher) sendHeartbeatPacket() {
+func (w LiveWatcher) sendHeartbeatPacket(ctx context.Context) {
 
 	heartbeatPacket := make([]byte, 16)
 	binary.BigEndian.PutUint32(heartbeatPacket[0:4], 16)  // 总长度
@@ -270,7 +270,12 @@ func (w LiveWatcher) sendHeartbeatPacket() {
 	for range ticker.C {
 		err := w.conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
 		if err != nil {
-			slog.Error("Send Hearbeat Error", "err", err)
+			select {
+			case <-ctx.Done():
+				slog.Info("WebSocket连接已关闭，停止发送心跳包")
+			default:
+				slog.Error("Send Hearbeat Error", "err", err)
+			}
 			return // 发生错误跳出循环，协程结束
 		} else {
 			// slog.Info("心跳包已发送")
