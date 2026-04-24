@@ -39,29 +39,54 @@ func main() {
 	}
 
 	// 实例化监听器
-	for {
-		ticker := time.NewTicker(24 * time.Hour)
-		ctx, cancel := context.WithCancel(context.Background())
-		for _, wconf := range conf.LiveWatcher {
 
-			// 1.初始化chan
-			// 2.初始化Manager
-			// 3.初始化Watcher
-			c := make(chan model.Metric)
-			// wconf := wconf
-			// 去重并注册 Notifier
-			// 构造 Watcher-Notifier map
-			// 实例化 Watcher 协程
-			// var w watchers.LiveWatcher
-			go manager.Manager(c, wconf)
-			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-			go watcher.Run(ctx, c)
-		}
-		<-ticker.C
-		slog.Info("正在重新启动监听器")
-		cancel()
-		ticker.Stop()
-		time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
+	// 	for {
+	// 		ticker := time.NewTicker(24 * time.Hour)
+	// 		ctx, cancel := context.WithCancel(context.Background())
+	// 		for _, wconf := range conf.LiveWatcher {
+	//
+	// 			// 1.初始化chan
+	// 			// 2.初始化Manager
+	// 			// 3.初始化Watcher
+	// 			c := make(chan model.Metric)
+	// 			// wconf := wconf
+	// 			// 去重并注册 Notifier
+	// 			// 构造 Watcher-Notifier map
+	// 			// 实例化 Watcher 协程
+	// 			// var w watchers.LiveWatcher
+	// 			go manager.Manager(c, wconf)
+	// 			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+	// 			go watcher.Run(ctx, c)
+	// 		}
+	// 		<-ticker.C
+	// 		slog.Info("正在重新启动监听器")
+	// 		cancel()
+	// 		ticker.Stop()
+	// 		// time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
+	// 	}
+
+	// #12
+
+	for _, wconf := range conf.LiveWatcher {
+		go func() { // 分别启动循环计时器协程
+			for { // 每24小时重启一次监听器
+				ticker := time.NewTicker(24 * time.Hour)
+				ctx, cancel := context.WithCancel(context.Background())
+				c := make(chan model.Metric)
+				// m := manager.NewManager()
+				w := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+				// go m.Run()
+
+				go manager.Manager(c, wconf)
+				go w.Run(ctx, c)
+
+				<-ticker.C // 阻塞等待24小时
+				slog.Info("正在重新启动全部监听器")
+				cancel() // 取消当前监听器的上下文，通知其退出，进入下个循环重新启动监听器
+				ticker.Stop()
+			}
+		}()
 	}
-	select {}
+
+	select {} // 阻塞主协程，保持程序运行
 }
