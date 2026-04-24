@@ -75,26 +75,33 @@ func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 	go func() {
 		<-ctx.Done()
 		slog.Info("收到重连信号，关闭当前WebSocket连接")
-		sleepTime := time.Duration(rand.Intn(10)) * time.Second
+		sleepTime := time.Duration(rand.Intn(10))*time.Second + 5*time.Second // 5-15秒后断开连接，保障连接持续性
 		time.Sleep(sleepTime)
 		w.conn.Close()
 	}()
-	defer close(c)
+	defer close(c) // 监听器退出时关闭通道，通知Manager进行清理
+
 	for {
-		_, packet, err := w.conn.ReadMessage()
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				slog.Info("WebSocket连接已关闭")
-			default:
-				slog.Error("Error read message.", "Error", err)
-			}
+		select {
+		case <-ctx.Done():
+			slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
 			return
-		}
-		messgae := m.ParsePacket(packet)
-		if messgae.Mtype != "" {
-			messgae.M_RoomID = int64(w.roomID)
-			c <- messgae
+		default:
+			_, packet, err := w.conn.ReadMessage()
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
+				default:
+					slog.Error("Error read message.", "Error", err, "RoomID", w.roomID)
+				}
+				return
+			}
+			messgae := m.ParsePacket(packet)
+			if messgae.Mtype != "" {
+				messgae.M_RoomID = int64(w.roomID)
+				c <- messgae
+			}
 		}
 	}
 }
@@ -122,7 +129,7 @@ func (w LiveWatcher) getRoomPlayInfo(shortId int) (roomId int, uid int) {
 	client := &http.Client{}
 	response, err := client.Do(request)
 	if err != nil {
-		slog.Error("Error get room play info. ", "Errors", err)
+		slog.Error("Error get room play info. ", "Error", err)
 	}
 
 	// 解析响应
@@ -267,18 +274,25 @@ func (w LiveWatcher) sendHeartbeatPacket(ctx context.Context) {
 	defer ticker.Stop()
 
 	// 循环发送
-	for range ticker.C {
-		err := w.conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
-		if err != nil {
-			select {
-			case <-ctx.Done():
-				slog.Info("WebSocket连接已关闭，停止发送心跳包")
-			default:
-				slog.Error("Send Hearbeat Error", "err", err, "RoomID", w.roomID)
+
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("收到停止心跳包的信号，退出心跳包发送协程", "RoomID", w.roomID)
+			return
+		case <-ticker.C:
+			err := w.conn.WriteMessage(websocket.BinaryMessage, heartbeatPacket)
+			if err != nil {
+				select {
+				case <-ctx.Done():
+					slog.Info("WebSocket连接已关闭，停止发送心跳包", "RoomID", w.roomID)
+				default:
+					slog.Error("Send Hearbeat Error", "Error", err, "RoomID", w.roomID)
+				}
+				return // 发生错误跳出循环，协程结束
+			} else {
+				// slog.Info("心跳包已发送")
 			}
-			return // 发生错误跳出循环，协程结束
-		} else {
-			// slog.Info("心跳包已发送")
 		}
 	}
 }
