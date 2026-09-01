@@ -2,6 +2,7 @@ package message
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"encoding/json"
 	"io"
@@ -31,29 +32,34 @@ func init() {
 	}
 }
 
-// 调试过程中分析每个数据包
-// Args:
+//	[]model.Metric: 解析出的全部业务事件(压缩包内可能包含多个消息)
 //
-//	packet: 原始字节流数据包
-//
-// Returns:
-//
-//	model.
-//
-// Packet存在几种情况(实测没有，删除相关逻辑):
-//
-//	1.长度小于16字节：无法解析头部，直接丢弃.
-//	2.正常的单个数据包.
-//	3.粘包：一个数据包后面紧跟着另一个数据包，需要递归解析剩余数据.
-//	4.分包（不确定是否存在这种情况）：一个数据包被分成多次发送，假设存在分包，打印出存在分包的提示，暂不处理分包的内容.
-//
-// 处理逻辑：
-//  1. 解析头部信息，判断数据包的总长度、头部长度、协议版本、操作码和序列号
-//  2. 根据操作码判断业务类型，分别处理心跳回复、业务通知和认证响应
-//  3. 如果数据包长度大于当前包的总长度，说明存在粘包，递归解析剩余数据
-//  4. 如果数据包长度小于头部信息中指定的总长度，说明当前数据包被分成多次发送，打印出存在分包的提示，暂不处理分包的内容
-func ParsePacket(packet []byte) model.Metric {
+// B 站服务器下发的压缩包内可能拼接多个 16 字节头的消息(粘包),本函数
+// 循环解析全部消息;数据长度不足或异常时丢弃剩余部分。
+func ParsePacket(packet []byte) []model.Metric {
+	return parseStream(packet)
+}
 
+// parseStream 循环解析字节流中的全部数据包
+func parseStream(data []byte) []model.Metric {
+	var metrics []model.Metric
+	for len(data) >= 16 {
+		packetLen := binary.BigEndian.Uint32(data[0:4])
+		if packetLen < 16 || int(packetLen) > len(data) {
+			// 数据损坏或分包不完整,丢弃剩余
+			break
+		}
+		metrics = append(metrics, parseOne(data[:packetLen])...)
+		data = data[packetLen:]
+	}
+	return metrics
+}
+
+// parseOne 解析单个数据包,返回其中包含的业务事件
+func parseOne(packet []byte) []model.Metric {
+	if len(packet) < 16 {
+		return nil
+	}
 	header := BiliHeader{
 		PacketLen: binary.BigEndian.Uint32(packet[0:4]),
 		HeaderLen: binary.BigEndian.Uint16(packet[4:6]),
@@ -61,28 +67,42 @@ func ParsePacket(packet []byte) model.Metric {
 		Op:        binary.BigEndian.Uint32(packet[8:12]),
 		Seq:       binary.BigEndian.Uint32(packet[12:16]),
 	}
-	var m model.Metric
+	if header.HeaderLen < 16 || int(header.PacketLen) > len(packet) {
+		return nil
+	}
 	switch header.Ver {
 	case 0:
 		// 普通json包
-		m = ParseJson(packet[header.HeaderLen:header.PacketLen])
-		return m
+		return []model.Metric{ParseJson(packet[header.HeaderLen:header.PacketLen])}
 	case 1:
-		// 心跳包，丢弃
+		// 心跳响应,无业务消息
 		slog.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
-		return m
+		return nil
 	case 2:
 		// zlib压缩包
-		slog.Debug("zlib", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
-		return m
+		reader, err := zlib.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
+		if err != nil {
+			slog.Error("zlib 解压失败", "Error", err)
+			return nil
+		}
+		decompressed, err := io.ReadAll(reader)
+		reader.Close()
+		if err != nil {
+			slog.Error("zlib 解压失败", "Error", err)
+			return nil
+		}
+		return parseStream(decompressed)
 	case 3:
 		// Brotli压缩包
 		reader := brotli.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
-		decompressed, _ := io.ReadAll(reader)
-		m = ParsePacket(decompressed)
-		return m
+		decompressed, err := io.ReadAll(reader)
+		if err != nil {
+			slog.Error("brotli 解压失败", "Error", err)
+			return nil
+		}
+		return parseStream(decompressed)
 	}
-	return m
+	return nil
 }
 
 func ParseJson(payload []byte) model.Metric {

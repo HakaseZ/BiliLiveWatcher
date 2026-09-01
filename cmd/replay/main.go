@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	m "github.com/HakaseZ/BiliLiveWatcher/watchers/messageReader"
@@ -129,16 +130,24 @@ func printFrame(ts time.Time, packet []byte, raw bool) {
 	ver := binary.BigEndian.Uint16(packet[6:8])
 	op := binary.BigEndian.Uint32(packet[8:12])
 
-	res := m.ParsePacket(packet)
+	results := m.ParsePacket(packet)
 	out := fmt.Sprintf("[%s] len=%d ver=%d op=%d", ts.Format("2006-01-02 15:04:05.000000000"), pktLen, ver, op)
-	if res.Mtype == "" {
+	if len(results) == 0 {
 		out += " → (无业务消息)"
 	} else {
-		msg, err := json.Marshal(res.Msg)
-		if err != nil {
-			msg = []byte(fmt.Sprintf("%+v", res.Msg))
+		var parts []string
+		for _, res := range results {
+			if res.Mtype == "" {
+				parts = append(parts, "(无业务消息)")
+				continue
+			}
+			msg, err := json.Marshal(res.Msg)
+			if err != nil {
+				msg = []byte(fmt.Sprintf("%+v", res.Msg))
+			}
+			parts = append(parts, fmt.Sprintf("%s %s", res.Mtype, msg))
 		}
-		out += fmt.Sprintf(" → %s %s", res.Mtype, msg)
+		out += " → " + strings.Join(parts, " | ")
 	}
 	fmt.Println(out)
 	if raw {

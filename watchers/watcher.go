@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -55,6 +54,31 @@ func NewWatcher(roomid int, cookie string) LiveWatcher {
 }
 
 func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
+	// 断线后指数退避重连:5s → 10s → 20s → 40s → 60s(封顶)
+	backoff := 5 * time.Second
+	for {
+		err := w.runOnce(ctx, c)
+		if ctx.Err() != nil {
+			slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
+			close(c) // 监听器退出时关闭通道，通知Manager进行清理
+			return
+		}
+		slog.Error("连接异常断开，等待重连", "Error", err, "RoomID", w.roomID, "退避", backoff)
+		select {
+		case <-ctx.Done():
+			slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
+			close(c)
+			return
+		case <-time.After(backoff):
+		}
+		if backoff < 60*time.Second {
+			backoff *= 2
+		}
+	}
+}
+
+// runOnce 建立一次弹幕服务器连接并监听,连接断开或上下文取消时返回
+func (w LiveWatcher) runOnce(ctx context.Context, c chan model.Metric) error {
 	wsURL := fmt.Sprintf("wss://%s/sub", w.wsHosts[0].Host) //使用默认服务器
 	slog.Info("正在连接弹幕服务器", "RoomID", w.roomID, "URL", wsURL)
 
@@ -63,43 +87,37 @@ func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 	header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	header.Set("Referer", "https://www.bilibili.com")
 
-	var err error
-	w.conn, _, err = websocket.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := websocket.DefaultDialer.Dial(wsURL, header)
 	if err != nil {
-		slog.Error("Error dialer ws server", "Error", err)
+		return fmt.Errorf("dial ws server: %w", err)
 	}
+	w.conn = conn
 	defer w.conn.Close()
-	// 发送认证和心跳包
-	w.sendAuthPacket()
-	go w.sendHeartbeatPacket(ctx)
 
+	// 上下文取消时主动关闭连接,解除 ReadMessage 阻塞
 	go func() {
 		<-ctx.Done()
-		slog.Info("收到重连信号，关闭当前WebSocket连接")
-		sleepTime := time.Duration(rand.Intn(10))*time.Second + 5*time.Second // 5-15秒后断开连接，保障连接持续性
-		time.Sleep(sleepTime)
 		w.conn.Close()
 	}()
-	defer close(c) // 监听器退出时关闭通道，通知Manager进行清理
+
+	// 发送认证和心跳包
+	w.sendAuthPacket()
+	hbCtx, cancelHeartbeat := context.WithCancel(ctx)
+	defer cancelHeartbeat()
+	go w.sendHeartbeatPacket(hbCtx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
-			return
+			return ctx.Err()
 		default:
-			_, packet, err := w.conn.ReadMessage()
-			if err != nil {
-				select {
-				case <-ctx.Done():
-					slog.Info("WebSocket连接已关闭，停止监听直播间事件", "RoomID", w.roomID)
-				default:
-					slog.Error("Error read message.", "Error", err, "RoomID", w.roomID)
-				}
-				return
-			}
-			capture.Write(packet)
-			messgae := m.ParsePacket(packet)
+		}
+		_, packet, err := w.conn.ReadMessage()
+		if err != nil {
+			return err
+		}
+		capture.Write(packet)
+		for _, messgae := range m.ParsePacket(packet) {
 			if messgae.Mtype != "" {
 				messgae.M_RoomID = int64(w.roomID)
 				c <- messgae
@@ -291,7 +309,8 @@ func (w LiveWatcher) sendHeartbeatPacket(ctx context.Context) {
 				default:
 					slog.Error("Send Hearbeat Error", "Error", err, "RoomID", w.roomID)
 				}
-				return // 发生错误跳出循环，协程结束
+				w.conn.Close() // 关闭连接,触发主循环感知断开并重连
+				return        // 发生错误跳出循环，协程结束
 			} else {
 				// slog.Info("心跳包已发送")
 			}
