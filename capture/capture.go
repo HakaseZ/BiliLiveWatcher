@@ -33,11 +33,12 @@ const (
 // mu 保护 queue/writer 生命周期:Write 持有读锁发送(与 close 互斥),
 // Init/Close 持有写锁分离并关闭队列。writeLoop 不触碰该锁,避免死锁。
 var (
-	mu        sync.RWMutex
-	writer    *lumberjack.Logger
-	queue     chan []byte
-	writeDone chan struct{}
-	dropped   atomic.Uint64 // 队列满被丢弃的捕获帧数
+	mu          sync.RWMutex
+	writer      *lumberjack.Logger
+	queue       chan []byte
+	writeDone   chan struct{}
+	dropped     atomic.Uint64 // 队列满被丢弃的捕获帧数
+	writeErrors atomic.Uint64 // 落盘失败的捕获帧数
 )
 
 // Init 初始化捕获。enabled 为 false 或 path 为空时关闭捕获;
@@ -76,7 +77,12 @@ func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 	go func(w *lumberjack.Logger) {
 		defer close(writeDone)
 		for frame := range queue {
-			w.Write(frame)
+			if _, err := w.Write(frame); err != nil {
+				writeErrors.Add(1)
+				if writeErrors.Load() == 1 {
+					slog.Warn("捕获写入失败", "error", err)
+				}
+			}
 		}
 	}(writer)
 }
@@ -118,6 +124,11 @@ func Write(packet []byte) {
 // Dropped 返回因队列满被丢弃的捕获帧数(供监控排查)
 func Dropped() uint64 {
 	return dropped.Load()
+}
+
+// WriteErrors 返回落盘失败的捕获帧数(供监控排查)
+func WriteErrors() uint64 {
+	return writeErrors.Load()
 }
 
 // Close 关闭捕获文件并停止后台写入。程序退出时调用。
