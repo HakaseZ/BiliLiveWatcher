@@ -2,21 +2,26 @@
     "credential":{
         "cookie":""
     },
-    "notifier":[
+    "logLevel": "info",
+    "capture":{
+        "enabled": true,
+        "path": "logs/capture.bin",
+        "maxSizeMB": 100,
+        "maxBackups": 5
+    },
+    "watcher":[
         {
             "roomid":1,
-            "bark":[]
-        },
-        {
-            "roomid":233,
-            "bark":[
-                "https://api.day.app/",
-                "https://api.day.app/"
-            ]
-        },
-        {
-            "roomid":2233,
-            "others":[]
+            "streamer":"",
+            "event":{
+                "LIVE": true,
+                "PREPARING": true,
+                "DANMU_MSG": [],
+                "INTER": []
+            },
+            "notifier":{
+                "bark":[]
+            }
         }
     ]
 }

@@ -1,5 +1,5 @@
 services:
-  BiliLiveWatcher:
+  bililivewatcher:
     build: .
     container_name: BiliLiveWatcher
     restart: always

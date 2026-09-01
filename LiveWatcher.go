@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/HakaseZ/BiliLiveWatcher/capture"
 	"github.com/HakaseZ/BiliLiveWatcher/manager"
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/watchers"
@@ -21,14 +23,14 @@ func init() {
 	}
 
 	//初始化全局logger
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 	slog.Info("系统初始化完成")
 }
 
 func main() {
 	// 读取配置
-	rConfig, err := os.ReadFile(".config.json")
+	rConfig, err := os.ReadFile("config.json")
 	if err != nil {
 		slog.Error("Error load config file.", "Error", err)
 	}
@@ -39,29 +41,70 @@ func main() {
 	}
 
 	// 实例化监听器
-	for {
-		ticker := time.NewTicker(24 * time.Hour)
-		ctx, cancel := context.WithCancel(context.Background())
-		for _, wconf := range conf.LiveWatcher {
-
-			// 1.初始化chan
-			// 2.初始化Manager
-			// 3.初始化Watcher
-			c := make(chan model.Metric)
-			// wconf := wconf
-			// 去重并注册 Notifier
-			// 构造 Watcher-Notifier map
-			// 实例化 Watcher 协程
-			// var w watchers.LiveWatcher
-			go manager.Manager(c, wconf)
-			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-			go watcher.Run(ctx, c)
-		}
-		<-ticker.C
-		slog.Info("正在重新启动监听器")
-		cancel()
-		ticker.Stop()
-		time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
+	// 根据配置设置日志级别,默认 Info(生产环境避免刷屏)
+	level := slog.LevelInfo
+	switch strings.ToLower(conf.LogLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
 	}
-	select {}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+
+	// 初始化原始数据包捕获
+	capture.Init(conf.Capture.Path, conf.Capture.Enabled, conf.Capture.MaxSizeMB, conf.Capture.MaxBackups)
+	defer capture.Close()
+
+
+	// 	for {
+	// 		ticker := time.NewTicker(24 * time.Hour)
+	// 		ctx, cancel := context.WithCancel(context.Background())
+	// 		for _, wconf := range conf.LiveWatcher {
+	//
+	// 			// 1.初始化chan
+	// 			// 2.初始化Manager
+	// 			// 3.初始化Watcher
+	// 			c := make(chan model.Metric)
+	// 			// wconf := wconf
+	// 			// 去重并注册 Notifier
+	// 			// 构造 Watcher-Notifier map
+	// 			// 实例化 Watcher 协程
+	// 			// var w watchers.LiveWatcher
+	// 			go manager.Manager(c, wconf)
+	// 			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+	// 			go watcher.Run(ctx, c)
+	// 		}
+	// 		<-ticker.C
+	// 		slog.Info("正在重新启动监听器")
+	// 		cancel()
+	// 		ticker.Stop()
+	// 		// time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
+	// 	}
+
+	// #12
+
+	for _, wconf := range conf.LiveWatcher {
+		go func() { // 分别启动循环计时器协程
+			for { // 每24小时重启一次监听器
+				ticker := time.NewTicker(24 * time.Hour)
+				ctx, cancel := context.WithCancel(context.Background())
+				c := make(chan model.Metric)
+				// m := manager.NewManager()
+				w := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
+				// go m.Run()
+
+				go manager.Manager(c, wconf)
+				go w.Run(ctx, c)
+
+				<-ticker.C // 阻塞等待24小时
+				slog.Info("正在重新启动全部监听器")
+				cancel() // 取消当前监听器的上下文，通知其退出，进入下个循环重新启动监听器
+				ticker.Stop()
+			}
+		}()
+	}
+
+	select {} // 阻塞主协程，保持程序运行
 }

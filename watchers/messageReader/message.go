@@ -2,11 +2,11 @@ package message
 
 import (
 	"bytes"
+	"compress/zlib"
 	"encoding/binary"
 	"encoding/json"
 	"io"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/model"
@@ -14,7 +14,6 @@ import (
 )
 
 var cstZone = time.FixedZone("CST", 8*3600)
-var debugLogger *slog.Logger
 
 type BiliHeader struct {
 	PacketLen uint32 // 总长度
@@ -31,36 +30,39 @@ func init() {
 	if err != nil {
 		time.Local = time.FixedZone("CST", 8*3600)
 	}
-
-	//初始化debug logger
-	debuglogfile, _ := os.OpenFile("logs/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
 
-// 调试过程中分析每个数据包
-// Args:
+//	[]model.Metric: 解析出的全部业务事件(压缩包内可能包含多个消息)
 //
-//	packet: 原始字节流数据包
-//
-// Returns:
-//
-//	model.
-//
-// Packet存在几种情况(实测没有，删除相关逻辑):
-//
-//	1.长度小于16字节：无法解析头部，直接丢弃.
-//	2.正常的单个数据包.
-//	3.粘包：一个数据包后面紧跟着另一个数据包，需要递归解析剩余数据.
-//	4.分包（不确定是否存在这种情况）：一个数据包被分成多次发送，假设存在分包，打印出存在分包的提示，暂不处理分包的内容.
-//
-// 处理逻辑：
-//  1. 解析头部信息，判断数据包的总长度、头部长度、协议版本、操作码和序列号
-//  2. 根据操作码判断业务类型，分别处理心跳回复、业务通知和认证响应
-//  3. 如果数据包长度大于当前包的总长度，说明存在粘包，递归解析剩余数据
-//  4. 如果数据包长度小于头部信息中指定的总长度，说明当前数据包被分成多次发送，打印出存在分包的提示，暂不处理分包的内容
-func ParsePacket(packet []byte) model.Metric {
+// B 站服务器下发的压缩包内可能拼接多个 16 字节头的消息(粘包),本函数
+// 循环解析全部消息;数据长度不足或异常时丢弃剩余部分。
+func ParsePacket(packet []byte) []model.Metric {
+	return parseStream(packet)
+}
 
+// parseStream 循环解析字节流中的全部数据包
+func parseStream(data []byte) []model.Metric {
+	var metrics []model.Metric
+	for len(data) >= 16 {
+		packetLen := binary.BigEndian.Uint32(data[0:4])
+		if packetLen < 16 || int(packetLen) > len(data) {
+			// 数据损坏或分包不完整,丢弃剩余
+			break
+		}
+		metrics = append(metrics, parseOne(data[:packetLen])...)
+		data = data[packetLen:]
+	}
+	return metrics
+}
+
+// maxDecompressedSize 单包解压结果上限,防止恶意/损坏压缩包撑爆内存
+const maxDecompressedSize = 16 << 20 // 16MB
+
+// parseOne 解析单个数据包,返回其中包含的业务事件
+func parseOne(packet []byte) []model.Metric {
+	if len(packet) < 16 {
+		return nil
+	}
 	header := BiliHeader{
 		PacketLen: binary.BigEndian.Uint32(packet[0:4]),
 		HeaderLen: binary.BigEndian.Uint16(packet[4:6]),
@@ -68,28 +70,50 @@ func ParsePacket(packet []byte) model.Metric {
 		Op:        binary.BigEndian.Uint32(packet[8:12]),
 		Seq:       binary.BigEndian.Uint32(packet[12:16]),
 	}
-	var m model.Metric
+	if header.HeaderLen < 16 || uint32(header.HeaderLen) > header.PacketLen || int(header.PacketLen) > len(packet) {
+		return nil
+	}
 	switch header.Ver {
 	case 0:
 		// 普通json包
-		m = ParseJson(packet[header.HeaderLen:header.PacketLen])
-		return m
+		return []model.Metric{ParseJson(packet[header.HeaderLen:header.PacketLen])}
 	case 1:
-		// 心跳包，丢弃
-		debugLogger.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
-		return m
+		// 心跳响应,无业务消息
+		slog.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
+		return nil
 	case 2:
 		// zlib压缩包
-		debugLogger.Debug("zlib", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
-		return m
+		reader, err := zlib.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
+		if err != nil {
+			slog.Error("zlib 解压失败", "Error", err)
+			return nil
+		}
+		decompressed, err := io.ReadAll(io.LimitReader(reader, maxDecompressedSize+1))
+		reader.Close()
+		if err != nil {
+			slog.Error("zlib 解压失败", "Error", err)
+			return nil
+		}
+		if len(decompressed) > maxDecompressedSize {
+			slog.Error("zlib 解压结果超过上限,丢弃", "size", len(decompressed))
+			return nil
+		}
+		return parseStream(decompressed)
 	case 3:
 		// Brotli压缩包
 		reader := brotli.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
-		decompressed, _ := io.ReadAll(reader)
-		m = ParsePacket(decompressed)
-		return m
+		decompressed, err := io.ReadAll(io.LimitReader(reader, maxDecompressedSize+1))
+		if err != nil {
+			slog.Error("brotli 解压失败", "Error", err)
+			return nil
+		}
+		if len(decompressed) > maxDecompressedSize {
+			slog.Error("brotli 解压结果超过上限,丢弃", "size", len(decompressed))
+			return nil
+		}
+		return parseStream(decompressed)
 	}
-	return m
+	return nil
 }
 
 func ParseJson(payload []byte) model.Metric {
@@ -109,7 +133,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "DANMU_MSG"
 			m.Msg = deal_DANMU_MSG(msg)
 
-			debugLogger.Debug("DANMU_MSG", "body[info]", msg)
+			slog.Debug("DANMU_MSG", "body[info]", msg)
 
 			return m
 
@@ -117,7 +141,7 @@ func ParseJson(payload []byte) model.Metric {
 			// 弹幕消息
 			m.Mtype = "DANMU_MSG_MIRROR"
 			// m.Msg = deal_DANMU_MSG(msg) // 弹幕不来自目标直播间，暂不作处理
-			debugLogger.Debug("DANMU_MSG_MIRROR", "body[info]", msg)
+			slog.Debug("DANMU_MSG_MIRROR", "body[info]", msg)
 
 			return m
 
@@ -126,7 +150,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "INTERACT_WORD_V2"
 			m.Msg = deal_INTERACT_WORD_V2(msg)
 
-			debugLogger.Debug("INTERACT_WORD_V2", "body[data]", msg)
+			slog.Debug("INTERACT_WORD_V2", "body[data]", msg)
 
 			return m
 
@@ -135,7 +159,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "LIVE"
 			// m.Msg = deal_LIVE(msg)
 
-			debugLogger.Debug("LIVE", "body", msg)
+			slog.Debug("LIVE", "body", msg)
 
 			return m
 
@@ -144,7 +168,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "PREPARING"
 			// m.Msg = deal_PREPARING(msg)
 
-			debugLogger.Debug("PREPARING", "body", msg)
+			slog.Debug("PREPARING", "body", msg)
 
 			return m
 
@@ -153,7 +177,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "SEND_GIFT"
 			// m.Msg = deal_SEND_GIFT(msg)
 
-			debugLogger.Debug("SEND_GIFT", "body", msg)
+			slog.Debug("SEND_GIFT", "body", msg)
 
 			return m
 		case "PREPASUPER_CHAT_MESSAGERING":
@@ -161,12 +185,21 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "PREPASUPER_CHAT_MESSAGERING"
 			// m.Msg = deal_PREPASUPER_CHAT_MESSAGERING(msg)
 
-			debugLogger.Debug("PREPASUPER_CHAT_MESSAGERING", "body", msg)
+			slog.Debug("PREPASUPER_CHAT_MESSAGERING", "body", msg)
+
+			return m
+
+		case "ROOM_CHANGE":
+			// 直播间信息变更
+			m.Mtype = "ROOM_CHANGE"
+			m.Msg = deal_ROOM_CHANGE(msg)
+
+			slog.Debug("ROOM_CHANGE", "body", msg)
 
 			return m
 
 		default:
-			debugLogger.Debug("未处理的消息类型", "cmd", msg["cmd"], "body", msg)
+			slog.Debug("未处理的消息类型", "cmd", msg["cmd"], "body", msg)
 			return m
 		}
 	} else {
