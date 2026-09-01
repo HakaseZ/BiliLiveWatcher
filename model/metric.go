@@ -31,4 +31,5 @@ type PreparingMsg struct {
 
 type RoomChangeMsg struct {
 	RoomID int64
+	Title  string
 }

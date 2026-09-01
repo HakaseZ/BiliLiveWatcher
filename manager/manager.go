@@ -16,7 +16,7 @@ import (
 func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
-	onStream, streamerUID, _ := room_get_info(nconfig.Roomid)
+	onStream, streamerUID, lastTitle := room_get_info(nconfig.Roomid)
 	streamerName, streamerIcon := get_master_info(streamerUID)
 	for m := range c {
 		switch m.Mtype {
@@ -69,6 +69,19 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				n.Send()
 			}
 		case "ROOM_CHANGE":
+			msg := m.Msg.(model.RoomChangeMsg)
+			if msg.Title == "" || msg.Title == lastTitle {
+				break
+			}
+			// 记录标题变更
+			slog.Info("直播间标题变更", "RoomID", nconfig.Roomid, "旧标题", lastTitle, "新标题", msg.Title)
+			lastTitle = msg.Title
+			n.Icon = streamerIcon
+			n.Title = fmt.Sprintf("【%s】正在播【%s】", streamerName, msg.Title)
+			n.BodyText = ""
+			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
+			slog.Info("发送通知", "通知内容", n.Title)
+			n.Send()
 		}
 	}
 }
