@@ -30,8 +30,10 @@ const (
 	queueSize       = 1024       // 异步写入队列容量,满则丢弃捕获帧
 )
 
+// mu 保护 queue/writer 生命周期:Write 持有读锁发送(与 close 互斥),
+// Init/Close 持有写锁分离并关闭队列。writeLoop 不触碰该锁,避免死锁。
 var (
-	mu        sync.Mutex
+	mu        sync.RWMutex
 	writer    *lumberjack.Logger
 	queue     chan []byte
 	writeDone chan struct{}
@@ -43,7 +45,7 @@ var (
 func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 	mu.Lock()
 	defer mu.Unlock()
-	stopWriteLoop()
+	stopWriteLoopLocked()
 	if writer != nil {
 		writer.Close()
 		writer = nil
@@ -70,28 +72,22 @@ func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 	}
 	queue = make(chan []byte, queueSize)
 	writeDone = make(chan struct{})
-	go writeLoop()
+	// writeLoop 闭包捕获 writer,不触碰 mu,等待期间不会与持锁的 Init/Close 死锁
+	go func(w *lumberjack.Logger) {
+		defer close(writeDone)
+		for frame := range queue {
+			w.Write(frame)
+		}
+	}(writer)
 }
 
-// stopWriteLoop 关闭队列并等待后台写入协程退出。调用方必须持有 mu。
-func stopWriteLoop() {
+// stopWriteLoopLocked 关闭当前队列并等待后台写入协程退出。调用方必须持有 mu 写锁。
+func stopWriteLoopLocked() {
 	if queue != nil {
 		close(queue)
 		<-writeDone
 		queue = nil
-	}
-}
-
-// writeLoop 后台单协程顺序写入帧,帧内不交错
-func writeLoop() {
-	defer close(writeDone)
-	for frame := range queue {
-		mu.Lock()
-		w := writer
-		mu.Unlock()
-		if w != nil {
-			w.Write(frame)
-		}
+		writeDone = nil
 	}
 }
 
@@ -106,6 +102,12 @@ func Write(packet []byte) {
 	binary.BigEndian.PutUint64(frame[4:12], uint64(time.Now().UnixNano()))
 	binary.BigEndian.PutUint32(frame[12:16], uint32(len(packet)))
 	copy(frame[frameHeaderSize:], packet)
+
+	mu.RLock()
+	defer mu.RUnlock()
+	if queue == nil {
+		return
+	}
 	select {
 	case queue <- frame:
 	default:
@@ -122,7 +124,7 @@ func Dropped() uint64 {
 func Close() {
 	mu.Lock()
 	defer mu.Unlock()
-	stopWriteLoop()
+	stopWriteLoopLocked()
 	if writer != nil {
 		writer.Close()
 		writer = nil
