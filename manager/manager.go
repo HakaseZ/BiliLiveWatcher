@@ -108,11 +108,12 @@ func room_get_info(roomid int) (bool, int, string) {
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error room get info. ", "Errors", err)
+		return false, 0, ""
 	}
+	defer response.Body.Close()
 
 	var roomInfoRes RoomGetInfoResponse
 	json.NewDecoder(response.Body).Decode(&roomInfoRes)
-	defer response.Body.Close()
 
 	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.UID, roomInfoRes.Data.Title
 }
@@ -141,10 +142,11 @@ func get_master_info(uid int) (string, string) {
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get anchor in room info. ", "Errors", err)
+		return "", ""
 	}
+	defer response.Body.Close()
 
 	var masterInfoRes GetMasterInfoResponse
 	json.NewDecoder(response.Body).Decode(&masterInfoRes)
-	defer response.Body.Close()
 	return masterInfoRes.Data.Info.Username, masterInfoRes.Data.Info.Face
 }

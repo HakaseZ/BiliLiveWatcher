@@ -94,10 +94,16 @@ func (w LiveWatcher) runOnce(ctx context.Context, c chan model.Metric) error {
 	w.conn = conn
 	defer w.conn.Close()
 
-	// 上下文取消时主动关闭连接,解除 ReadMessage 阻塞
+	// 会话级取消:上下文取消或本会话结束时主动关闭连接,解除 ReadMessage 阻塞。
+	// 会话结束即终止监听 goroutine,避免其残留到下一会话误关新连接。
+	sessionDone := make(chan struct{})
+	defer close(sessionDone)
 	go func() {
-		<-ctx.Done()
-		w.conn.Close()
+		select {
+		case <-ctx.Done():
+			w.conn.Close()
+		case <-sessionDone:
+		}
 	}()
 
 	// 发送认证和心跳包

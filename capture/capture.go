@@ -1,7 +1,8 @@
 // Package capture 捕获 B 站弹幕服务器下发的原始数据包。
 //
-// 原始包以帧形式写入磁盘,通过 lumberjack 按大小轮转、保留有限份数并
-// gzip 压缩旧文件,磁盘占用有硬上限,不会无限膨胀。
+// 原始包以帧形式异步写入磁盘(有界队列,队列满时丢弃捕获帧并计数,不阻塞
+// WebSocket 读路径),通过 lumberjack 按大小轮转、保留有限份数并 gzip 压缩
+// 旧文件,磁盘占用有硬上限,不会无限膨胀。
 //
 // 帧格式:
 //
@@ -17,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -25,11 +27,15 @@ import (
 const (
 	magic           = 0x424c4350 // "BLCP"
 	frameHeaderSize = 4 + 8 + 4  // magic + 时间戳 + 包长度
+	queueSize       = 1024       // 异步写入队列容量,满则丢弃捕获帧
 )
 
 var (
-	mu     sync.Mutex
-	writer *lumberjack.Logger
+	mu        sync.Mutex
+	writer    *lumberjack.Logger
+	queue     chan []byte
+	writeDone chan struct{}
+	dropped   atomic.Uint64 // 队列满被丢弃的捕获帧数
 )
 
 // Init 初始化捕获。enabled 为 false 或 path 为空时关闭捕获;
@@ -37,6 +43,7 @@ var (
 func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 	mu.Lock()
 	defer mu.Unlock()
+	stopWriteLoop()
 	if writer != nil {
 		writer.Close()
 		writer = nil
@@ -61,16 +68,37 @@ func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 		MaxBackups: maxBackups,
 		Compress:   true,
 	}
+	queue = make(chan []byte, queueSize)
+	writeDone = make(chan struct{})
+	go writeLoop()
 }
 
-// Write 将原始数据包写入捕获文件。捕获未启用或写入失败时静默丢弃,不影响主流程。
+// stopWriteLoop 关闭队列并等待后台写入协程退出。调用方必须持有 mu。
+func stopWriteLoop() {
+	if queue != nil {
+		close(queue)
+		<-writeDone
+		queue = nil
+	}
+}
+
+// writeLoop 后台单协程顺序写入帧,帧内不交错
+func writeLoop() {
+	defer close(writeDone)
+	for frame := range queue {
+		mu.Lock()
+		w := writer
+		mu.Unlock()
+		if w != nil {
+			w.Write(frame)
+		}
+	}
+}
+
+// Write 将原始数据包入队写入捕获文件。捕获未启用时为空操作;
+// 队列满时丢弃该帧并计数,不阻塞调用方。
 func Write(packet []byte) {
 	if len(packet) == 0 {
-		return
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if writer == nil {
 		return
 	}
 	frame := make([]byte, frameHeaderSize+len(packet))
@@ -78,13 +106,23 @@ func Write(packet []byte) {
 	binary.BigEndian.PutUint64(frame[4:12], uint64(time.Now().UnixNano()))
 	binary.BigEndian.PutUint32(frame[12:16], uint32(len(packet)))
 	copy(frame[frameHeaderSize:], packet)
-	writer.Write(frame)
+	select {
+	case queue <- frame:
+	default:
+		dropped.Add(1)
+	}
 }
 
-// Close 关闭捕获文件。程序退出时调用。
+// Dropped 返回因队列满被丢弃的捕获帧数(供监控排查)
+func Dropped() uint64 {
+	return dropped.Load()
+}
+
+// Close 关闭捕获文件并停止后台写入。程序退出时调用。
 func Close() {
 	mu.Lock()
 	defer mu.Unlock()
+	stopWriteLoop()
 	if writer != nil {
 		writer.Close()
 		writer = nil

@@ -11,6 +11,7 @@ package main
 
 import (
 	"bufio"
+	"compress/gzip"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -59,13 +60,25 @@ func replayFile(path string, raw bool) error {
 	defer f.Close()
 
 	r := bufio.NewReader(f)
+
+	// 检测 gzip 压缩的轮转文件(lumberjack Compress 产物),透明解压
+	if head, err := r.Peek(2); err == nil && head[0] == 0x1f && head[1] == 0x8b {
+		gr, err := gzip.NewReader(r)
+		if err != nil {
+			return fmt.Errorf("gzip 解压失败: %w", err)
+		}
+		defer gr.Close()
+		r = bufio.NewReader(gr)
+	}
+
 	var (
-		header   [frameHeaderSize]byte
 		frameNum int
 		skipped  int64
 	)
 	for {
-		if _, err := io.ReadFull(r, header[:]); err != nil {
+		// Peek 帧头,校验通过才消费;损坏帧的字节仍保留在缓冲中供重同步扫描
+		head, err := r.Peek(frameHeaderSize)
+		if err != nil {
 			if err == io.EOF {
 				break
 			}
@@ -75,7 +88,7 @@ func replayFile(path string, raw bool) error {
 			}
 			return err
 		}
-		if binary.BigEndian.Uint32(header[0:4]) != magic {
+		if binary.BigEndian.Uint32(head[0:4]) != magic {
 			n, err := resync(r)
 			skipped += n
 			if err != nil {
@@ -85,14 +98,17 @@ func replayFile(path string, raw bool) error {
 			fmt.Fprintf(os.Stderr, "警告: 检测到损坏帧,跳过 %d 字节\n", n)
 			continue
 		}
-		ts := time.Unix(0, int64(binary.BigEndian.Uint64(header[4:12])))
-		pktLen := binary.BigEndian.Uint32(header[12:16])
+		ts := time.Unix(0, int64(binary.BigEndian.Uint64(head[4:12])))
+		pktLen := binary.BigEndian.Uint32(head[12:16])
 		if pktLen < 16 || pktLen > maxPacketSize {
 			fmt.Fprintf(os.Stderr, "警告: 第 %d 帧长度非法(%d),重新同步\n", frameNum, pktLen)
 			if _, err := resync(r); err != nil {
 				break
 			}
 			continue
+		}
+		if _, err := r.Discard(frameHeaderSize); err != nil {
+			return err
 		}
 		packet := make([]byte, pktLen)
 		if _, err := io.ReadFull(r, packet); err != nil {

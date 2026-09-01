@@ -55,6 +55,9 @@ func parseStream(data []byte) []model.Metric {
 	return metrics
 }
 
+// maxDecompressedSize 单包解压结果上限,防止恶意/损坏压缩包撑爆内存
+const maxDecompressedSize = 16 << 20 // 16MB
+
 // parseOne 解析单个数据包,返回其中包含的业务事件
 func parseOne(packet []byte) []model.Metric {
 	if len(packet) < 16 {
@@ -67,7 +70,7 @@ func parseOne(packet []byte) []model.Metric {
 		Op:        binary.BigEndian.Uint32(packet[8:12]),
 		Seq:       binary.BigEndian.Uint32(packet[12:16]),
 	}
-	if header.HeaderLen < 16 || int(header.PacketLen) > len(packet) {
+	if header.HeaderLen < 16 || uint32(header.HeaderLen) > header.PacketLen || int(header.PacketLen) > len(packet) {
 		return nil
 	}
 	switch header.Ver {
@@ -85,19 +88,27 @@ func parseOne(packet []byte) []model.Metric {
 			slog.Error("zlib 解压失败", "Error", err)
 			return nil
 		}
-		decompressed, err := io.ReadAll(reader)
+		decompressed, err := io.ReadAll(io.LimitReader(reader, maxDecompressedSize+1))
 		reader.Close()
 		if err != nil {
 			slog.Error("zlib 解压失败", "Error", err)
+			return nil
+		}
+		if len(decompressed) > maxDecompressedSize {
+			slog.Error("zlib 解压结果超过上限,丢弃", "size", len(decompressed))
 			return nil
 		}
 		return parseStream(decompressed)
 	case 3:
 		// Brotli压缩包
 		reader := brotli.NewReader(bytes.NewReader(packet[header.HeaderLen:header.PacketLen]))
-		decompressed, err := io.ReadAll(reader)
+		decompressed, err := io.ReadAll(io.LimitReader(reader, maxDecompressedSize+1))
 		if err != nil {
 			slog.Error("brotli 解压失败", "Error", err)
+			return nil
+		}
+		if len(decompressed) > maxDecompressedSize {
+			slog.Error("brotli 解压结果超过上限,丢弃", "size", len(decompressed))
 			return nil
 		}
 		return parseStream(decompressed)
