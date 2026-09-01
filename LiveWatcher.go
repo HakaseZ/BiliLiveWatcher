@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/HakaseZ/BiliLiveWatcher/capture"
 	"github.com/HakaseZ/BiliLiveWatcher/manager"
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/watchers"
@@ -21,7 +23,7 @@ func init() {
 	}
 
 	//初始化全局logger
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 	slog.Info("系统初始化完成")
 }
@@ -39,6 +41,22 @@ func main() {
 	}
 
 	// 实例化监听器
+	// 根据配置设置日志级别,默认 Info(生产环境避免刷屏)
+	level := slog.LevelInfo
+	switch strings.ToLower(conf.LogLevel) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	}
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level})))
+
+	// 初始化原始数据包捕获
+	capture.Init(conf.Capture.Path, conf.Capture.Enabled, conf.Capture.MaxSizeMB, conf.Capture.MaxBackups)
+	defer capture.Close()
+
 
 	// 	for {
 	// 		ticker := time.NewTicker(24 * time.Hour)

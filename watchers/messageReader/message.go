@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"io"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/model"
@@ -14,7 +13,6 @@ import (
 )
 
 var cstZone = time.FixedZone("CST", 8*3600)
-var debugLogger *slog.Logger
 
 type BiliHeader struct {
 	PacketLen uint32 // 总长度
@@ -31,11 +29,6 @@ func init() {
 	if err != nil {
 		time.Local = time.FixedZone("CST", 8*3600)
 	}
-
-	//初始化debug logger
-	debuglogfile, _ := os.OpenFile("logs/debug.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-
-	debugLogger = slog.New(slog.NewTextHandler(debuglogfile, &slog.HandlerOptions{Level: slog.LevelDebug}))
 }
 
 // 调试过程中分析每个数据包
@@ -76,11 +69,11 @@ func ParsePacket(packet []byte) model.Metric {
 		return m
 	case 1:
 		// 心跳包，丢弃
-		debugLogger.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
+		slog.Debug("响应包", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
 		return m
 	case 2:
 		// zlib压缩包
-		debugLogger.Debug("zlib", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
+		slog.Debug("zlib", "header.PacketLen", header.PacketLen, "len(packet)", len(packet))
 		return m
 	case 3:
 		// Brotli压缩包
@@ -109,7 +102,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "DANMU_MSG"
 			m.Msg = deal_DANMU_MSG(msg)
 
-			debugLogger.Debug("DANMU_MSG", "body[info]", msg)
+			slog.Debug("DANMU_MSG", "body[info]", msg)
 
 			return m
 
@@ -117,7 +110,7 @@ func ParseJson(payload []byte) model.Metric {
 			// 弹幕消息
 			m.Mtype = "DANMU_MSG_MIRROR"
 			// m.Msg = deal_DANMU_MSG(msg) // 弹幕不来自目标直播间，暂不作处理
-			debugLogger.Debug("DANMU_MSG_MIRROR", "body[info]", msg)
+			slog.Debug("DANMU_MSG_MIRROR", "body[info]", msg)
 
 			return m
 
@@ -126,7 +119,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "INTERACT_WORD_V2"
 			m.Msg = deal_INTERACT_WORD_V2(msg)
 
-			debugLogger.Debug("INTERACT_WORD_V2", "body[data]", msg)
+			slog.Debug("INTERACT_WORD_V2", "body[data]", msg)
 
 			return m
 
@@ -135,7 +128,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "LIVE"
 			// m.Msg = deal_LIVE(msg)
 
-			debugLogger.Debug("LIVE", "body", msg)
+			slog.Debug("LIVE", "body", msg)
 
 			return m
 
@@ -144,7 +137,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "PREPARING"
 			// m.Msg = deal_PREPARING(msg)
 
-			debugLogger.Debug("PREPARING", "body", msg)
+			slog.Debug("PREPARING", "body", msg)
 
 			return m
 
@@ -153,7 +146,7 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "SEND_GIFT"
 			// m.Msg = deal_SEND_GIFT(msg)
 
-			debugLogger.Debug("SEND_GIFT", "body", msg)
+			slog.Debug("SEND_GIFT", "body", msg)
 
 			return m
 		case "PREPASUPER_CHAT_MESSAGERING":
@@ -161,12 +154,21 @@ func ParseJson(payload []byte) model.Metric {
 			m.Mtype = "PREPASUPER_CHAT_MESSAGERING"
 			// m.Msg = deal_PREPASUPER_CHAT_MESSAGERING(msg)
 
-			debugLogger.Debug("PREPASUPER_CHAT_MESSAGERING", "body", msg)
+			slog.Debug("PREPASUPER_CHAT_MESSAGERING", "body", msg)
+
+			return m
+
+		case "ROOM_CHANGE":
+			// 直播间信息变更
+			m.Mtype = "ROOM_CHANGE"
+			m.Msg = deal_ROOM_CHANGE(msg)
+
+			slog.Debug("ROOM_CHANGE", "body", msg)
 
 			return m
 
 		default:
-			debugLogger.Debug("未处理的消息类型", "cmd", msg["cmd"], "body", msg)
+			slog.Debug("未处理的消息类型", "cmd", msg["cmd"], "body", msg)
 			return m
 		}
 	} else {

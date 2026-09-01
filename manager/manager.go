@@ -68,6 +68,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				slog.Info("发送通知", "通知内容", n.Title)
 				n.Send()
 			}
+		case "ROOM_CHANGE":
 		}
 	}
 }

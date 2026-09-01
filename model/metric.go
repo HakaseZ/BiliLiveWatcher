@@ -28,3 +28,7 @@ type LiveMsg struct {
 type PreparingMsg struct {
 	RoomID int64
 }
+
+type RoomChangeMsg struct {
+	RoomID int64
+}

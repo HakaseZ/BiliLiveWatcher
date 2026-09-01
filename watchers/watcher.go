@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/HakaseZ/BiliLiveWatcher/capture"
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/utils"
 	m "github.com/HakaseZ/BiliLiveWatcher/watchers/messageReader"
@@ -97,6 +98,7 @@ func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
 				}
 				return
 			}
+			capture.Write(packet)
 			messgae := m.ParsePacket(packet)
 			if messgae.Mtype != "" {
 				messgae.M_RoomID = int64(w.roomID)
