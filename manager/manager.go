@@ -15,6 +15,13 @@ import (
 	"github.com/HakaseZ/BiliLiveWatcher/notifier"
 )
 
+// Manager 消费直播间事件通道并发送对应通知
+//
+// Args:
+//
+//	ctx (context.Context): 通知请求上下文,取消时中止在途通知发送
+//	c (chan model.Metric): 直播间事件通道
+//	nconfig (model.LiveWatcher): 直播间与通知配置
 func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
@@ -96,6 +103,17 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 	}
 }
 
+// room_get_info 查询直播间当前状态
+//
+// Args:
+//
+//	roomid (int): 直播间ID
+//
+// Returns:
+//
+//	isLive (bool): 是否正在直播
+//	uid (int): 主播UID
+//	title (string): 直播间标题
 func room_get_info(roomid int) (bool, int, string) {
 	type RoomGetInfoResponse struct {
 		Code int `json:"code"`
@@ -139,6 +157,16 @@ func room_get_info(roomid int) (bool, int, string) {
 	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.UID, roomInfoRes.Data.Title
 }
 
+// get_master_info 查询主播名称与头像
+//
+// Args:
+//
+//	uid (int): 主播UID
+//
+// Returns:
+//
+//	username (string): 主播用户名
+//	face (string): 主播头像URL
 func get_master_info(uid int) (string, string) {
 	type GetMasterInfoResponse struct {
 		Code int `json:"code"`
