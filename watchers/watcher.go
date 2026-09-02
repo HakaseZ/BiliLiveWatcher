@@ -263,13 +263,18 @@ func (w LiveWatcher) sendAuthPacket() {
 		Key      string `json:"key"`      // Token
 		BuvID    string `json:"buvid"`    // buvid3
 	}
-	// 解析Cookie
+	// 解析Cookie(缺失字段按游客处理,避免 nil 解引用)
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	req.Header.Set("Cookie", w.cookie)
 
-	DedeUserID, _ := req.Cookie("DedeUserID")
-	uid, _ := strconv.ParseInt(DedeUserID.Value, 10, 64)
-	buvid3, _ := req.Cookie("buvid3")
+	uid := int64(0)
+	if DedeUserID, err := req.Cookie("DedeUserID"); err == nil {
+		uid, _ = strconv.ParseInt(DedeUserID.Value, 10, 64)
+	}
+	buvid3 := ""
+	if c, err := req.Cookie("buvid3"); err == nil {
+		buvid3 = c.Value
+	}
 
 	payload := AuthPayload{
 		UID:      int(uid),
@@ -278,7 +283,7 @@ func (w LiveWatcher) sendAuthPacket() {
 		Platform: "web",
 		Type:     2,
 		Key:      w.Token,
-		BuvID:    buvid3.Value,
+		BuvID:    buvid3,
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
