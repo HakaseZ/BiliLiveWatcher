@@ -147,9 +147,9 @@ func (w LiveWatcher) getRoomPlayInfo(shortId int) (roomId int, uid int) {
 	type RooomPlayInfoResponse struct {
 		Code int `json:"code"`
 		Data struct {
-			RoomID     int  `json:"room_id"`
-			UID        int  `json:"uid"`
-			LiveStatus bool `json:"live_status"`
+			RoomID     int `json:"room_id"`
+			UID        int `json:"uid"`
+			LiveStatus int `json:"live_status"`
 		} `json:""`
 	}
 	baseURL := "https://api.live.bilibili.com/xlive/web-room/v1/index/getRoomPlayInfo"
@@ -233,20 +233,28 @@ func (w LiveWatcher) getDanmuInfo() (string, []wsHost) {
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get DanmuInfo.", "Error", err)
+		return "", nil
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		slog.Error("Get DanmuInfo returned HTTP error. ", "StatusCode", response.StatusCode)
+		return "", nil
 	}
 
 	// 解析响应
 	var danmuInfoRes DanmuInfoResponse
-	json.NewDecoder(response.Body).Decode(&danmuInfoRes)
-
-	defer response.Body.Close()
-
+	if err := json.NewDecoder(response.Body).Decode(&danmuInfoRes); err != nil {
+		slog.Error("Decode DanmuInfo failed. ", "Error", err)
+		return "", nil
+	}
 	if danmuInfoRes.Code != 0 {
 		slog.Error("Error fetching DanmuInfo", "Code", danmuInfoRes.Code)
+		return "", nil
 	}
 
 	return danmuInfoRes.Data.Token, danmuInfoRes.Data.HostList
@@ -263,13 +271,18 @@ func (w LiveWatcher) sendAuthPacket() {
 		Key      string `json:"key"`      // Token
 		BuvID    string `json:"buvid"`    // buvid3
 	}
-	// 解析Cookie
+	// 解析Cookie(缺失字段按游客处理,避免 nil 解引用)
 	req, _ := http.NewRequest("GET", "http://example.com", nil)
 	req.Header.Set("Cookie", w.cookie)
 
-	DedeUserID, _ := req.Cookie("DedeUserID")
-	uid, _ := strconv.ParseInt(DedeUserID.Value, 10, 64)
-	buvid3, _ := req.Cookie("buvid3")
+	uid := int64(0)
+	if DedeUserID, err := req.Cookie("DedeUserID"); err == nil {
+		uid, _ = strconv.ParseInt(DedeUserID.Value, 10, 64)
+	}
+	buvid3 := ""
+	if c, err := req.Cookie("buvid3"); err == nil {
+		buvid3 = c.Value
+	}
 
 	payload := AuthPayload{
 		UID:      int(uid),
@@ -278,7 +291,7 @@ func (w LiveWatcher) sendAuthPacket() {
 		Platform: "web",
 		Type:     2,
 		Key:      w.Token,
-		BuvID:    buvid3.Value,
+		BuvID:    buvid3,
 	}
 
 	payloadBytes, _ := json.Marshal(payload)
