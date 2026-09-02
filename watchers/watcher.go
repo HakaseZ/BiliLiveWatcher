@@ -147,9 +147,9 @@ func (w LiveWatcher) getRoomPlayInfo(shortId int) (roomId int, uid int) {
 	type RooomPlayInfoResponse struct {
 		Code int `json:"code"`
 		Data struct {
-			RoomID     int  `json:"room_id"`
-			UID        int  `json:"uid"`
-			LiveStatus bool `json:"live_status"`
+			RoomID     int `json:"room_id"`
+			UID        int `json:"uid"`
+			LiveStatus int `json:"live_status"`
 		} `json:""`
 	}
 	baseURL := "https://api.live.bilibili.com/xlive/web-room/v1/index/getRoomPlayInfo"
