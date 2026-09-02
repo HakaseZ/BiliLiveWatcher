@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/model"
 	"github.com/HakaseZ/BiliLiveWatcher/notifier"
@@ -21,38 +22,42 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 	for m := range c {
 		switch m.Mtype {
 		case "LIVE":
-			if nconfig.Event.LIVE {
-				if onStream {
-					slog.Warn("重复收到开播事件")
-				} else {
-					onStream = true
-					n.Icon = streamerIcon
-					n.Title = fmt.Sprintf("%s开播了！", streamerName)
-					_, _, n.BodyText = room_get_info(nconfig.Roomid)
-					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-					slog.Info("发送通知", "通知内容", n.Title)
-					n.Send()
+			if onStream {
+				slog.Warn("重复收到开播事件")
+			} else {
+				onStream = true
+				// 配置关闭开播通知时仅同步流状态,不发送通知
+				if !nconfig.Event.LIVE {
+					break
 				}
+				n.Icon = streamerIcon
+				n.Title = fmt.Sprintf("%s开播了", streamerName)
+				_, _, n.BodyText = room_get_info(nconfig.Roomid)
+				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
+				slog.Info("发送通知", "通知内容", n.Title)
+				n.Send()
 			}
 		case "PREPARING":
-			if nconfig.Event.PREPARING {
-				if onStream {
-					onStream = false
-					n.Icon = streamerIcon
-					n.Title = fmt.Sprintf("%s下播了。", streamerName)
-					_, _, n.BodyText = room_get_info(nconfig.Roomid)
-					n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-					slog.Info("发送通知", "通知内容", n.Title)
-					n.Send()
-				} else {
-					slog.Warn("重复收到下播事件")
+			if onStream {
+				onStream = false
+				// 配置关闭下播通知时仅同步流状态,不发送通知
+				if !nconfig.Event.PREPARING {
+					break
 				}
+				n.Icon = streamerIcon
+				n.Title = fmt.Sprintf("%s下播了", streamerName)
+				_, _, n.BodyText = room_get_info(nconfig.Roomid)
+				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
+				slog.Info("发送通知", "通知内容", n.Title)
+				n.Send()
+			} else {
+				slog.Warn("重复收到下播事件")
 			}
 		case "INTERACT_WORD_V2":
 			msg := m.Msg.(model.EnterRoomMsg)
 			if slices.Contains(nconfig.Event.INTER, msg.User.UID) {
 				n.Icon = msg.Face
-				n.Title = fmt.Sprintf("%s来了。", msg.Username)
+				n.Title = fmt.Sprintf("%s来了", msg.Username)
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
@@ -76,9 +81,13 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			// 记录标题变更
 			slog.Info("直播间标题变更", "RoomID", nconfig.Roomid, "旧标题", lastTitle, "新标题", msg.Title)
 			lastTitle = msg.Title
+			// 配置关闭开播通知(LIVE=false)或房间未开播(PREPARING)时不发送标题变更通知
+			if !nconfig.Event.LIVE || !onStream {
+				break
+			}
 			n.Icon = streamerIcon
-			n.Title = fmt.Sprintf("%s正在播%s", streamerName, msg.Title)
-			n.BodyText = ""
+			n.Title = fmt.Sprintf("%s正在直播", msg.Title)
+			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 			slog.Info("发送通知", "通知内容", n.Title)
 			n.Send()
@@ -104,7 +113,7 @@ func room_get_info(roomid int) (bool, int, string) {
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error room get info. ", "Errors", err)
@@ -113,7 +122,14 @@ func room_get_info(roomid int) (bool, int, string) {
 	defer response.Body.Close()
 
 	var roomInfoRes RoomGetInfoResponse
-	json.NewDecoder(response.Body).Decode(&roomInfoRes)
+	if err := json.NewDecoder(response.Body).Decode(&roomInfoRes); err != nil {
+		slog.Error("Decode room get info failed. ", "Errors", err)
+		return false, 0, ""
+	}
+	if roomInfoRes.Code != 0 {
+		slog.Error("Room get info returned error code. ", "Code", roomInfoRes.Code)
+		return false, 0, ""
+	}
 
 	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.UID, roomInfoRes.Data.Title
 }
@@ -138,7 +154,7 @@ func get_master_info(uid int) (string, string) {
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get anchor in room info. ", "Errors", err)
@@ -147,6 +163,13 @@ func get_master_info(uid int) (string, string) {
 	defer response.Body.Close()
 
 	var masterInfoRes GetMasterInfoResponse
-	json.NewDecoder(response.Body).Decode(&masterInfoRes)
+	if err := json.NewDecoder(response.Body).Decode(&masterInfoRes); err != nil {
+		slog.Error("Decode master info failed. ", "Errors", err)
+		return "", ""
+	}
+	if masterInfoRes.Code != 0 {
+		slog.Error("Master info returned error code. ", "Code", masterInfoRes.Code)
+		return "", ""
+	}
 	return masterInfoRes.Data.Info.Username, masterInfoRes.Data.Info.Face
 }

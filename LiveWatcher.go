@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/capture"
@@ -33,11 +36,13 @@ func main() {
 	rConfig, err := os.ReadFile("config.json")
 	if err != nil {
 		slog.Error("Error load config file.", "Error", err)
+		os.Exit(1)
 	}
 	var conf model.Config
 	err = json.Unmarshal(rConfig, &conf)
 	if err != nil {
 		slog.Error("Error Unmarshal config file.", "Error", err)
+		os.Exit(1)
 	}
 
 	// 实例化监听器
@@ -55,8 +60,6 @@ func main() {
 
 	// 初始化原始数据包捕获
 	capture.Init(conf.Capture.Path, conf.Capture.Enabled, conf.Capture.MaxSizeMB, conf.Capture.MaxBackups)
-	defer capture.Close()
-
 
 	// 	for {
 	// 		ticker := time.NewTicker(24 * time.Hour)
@@ -85,26 +88,45 @@ func main() {
 
 	// #12
 
+	// 共享根上下文:收到退出信号时可取消所有 watcher
+	ctx, cancel := context.WithCancel(context.Background())
+	var wg sync.WaitGroup
 	for _, wconf := range conf.LiveWatcher {
-		go func() { // 分别启动循环计时器协程
+		wg.Add(1)
+		go func(wconf model.LiveWatcher) { // 分别启动循环计时器协程
+			defer wg.Done()
 			for { // 每24小时重启一次监听器
+				iterCtx, iterCancel := context.WithCancel(ctx)
 				ticker := time.NewTicker(24 * time.Hour)
-				ctx, cancel := context.WithCancel(context.Background())
 				c := make(chan model.Metric)
-				// m := manager.NewManager()
 				w := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-				// go m.Run()
 
-				go manager.Manager(c, wconf)
-				go w.Run(ctx, c)
+				var inner sync.WaitGroup
+				inner.Add(2)
+				go func() { defer inner.Done(); manager.Manager(c, wconf) }()
+				go func() { defer inner.Done(); w.Run(iterCtx, c) }()
 
-				<-ticker.C // 阻塞等待24小时
-				slog.Info("正在重新启动全部监听器")
-				cancel() // 取消当前监听器的上下文，通知其退出，进入下个循环重新启动监听器
-				ticker.Stop()
+				select {
+				case <-ticker.C: // 24小时到期,重启监听器
+					slog.Info("正在重新启动监听器", "RoomID", wconf.Roomid)
+					iterCancel()
+					inner.Wait() // 等待当前 watcher 与 manager 退出后再重启
+					ticker.Stop()
+				case <-ctx.Done(): // 收到退出信号,结束循环
+					iterCancel()
+					inner.Wait() // 等待 watcher 退出(关闭channel)与 manager 排空
+					ticker.Stop()
+					return
+				}
 			}
-		}()
+		}(wconf)
 	}
 
-	select {} // 阻塞主协程，保持程序运行
+	// 等待退出信号(SIGINT/SIGTERM):取消所有 watcher,全部结束后关闭捕获
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	cancel()
+	wg.Wait()
+	capture.Close()
 }

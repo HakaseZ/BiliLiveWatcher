@@ -49,11 +49,21 @@ func NewWatcher(roomid int, cookie string) LiveWatcher {
 	var w LiveWatcher
 	w.cookie = cookie
 	w.roomID, w.UID = w.getRoomPlayInfo(roomid)
+	if w.roomID == 0 || w.UID == 0 {
+		slog.Error("获取直播间信息失败,停止初始化监听器", "RoomID", roomid)
+		return w
+	}
 	w.Token, w.wsHosts = w.getDanmuInfo()
 	return w
 }
 
 func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
+	// 初始化失败(房间信息或弹幕服务器配置获取失败)时直接退出,避免空 host 索引 panic
+	if w.roomID == 0 || len(w.wsHosts) == 0 {
+		slog.Error("监听器初始化失败,停止运行", "RoomID", w.roomID)
+		close(c)
+		return
+	}
 	// 断线后指数退避重连:5s → 10s → 20s → 40s → 60s(封顶)
 	backoff := 5 * time.Second
 	for {
@@ -152,16 +162,29 @@ func (w LiveWatcher) getRoomPlayInfo(shortId int) (roomId int, uid int) {
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get room play info. ", "Error", err)
+		return 0, 0
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		slog.Error("Get room play info returned HTTP error. ", "StatusCode", response.StatusCode)
+		return 0, 0
 	}
 
 	// 解析响应
 	var danmuInfoRes RooomPlayInfoResponse
-	json.NewDecoder(response.Body).Decode(&danmuInfoRes)
-	defer response.Body.Close()
+	if err := json.NewDecoder(response.Body).Decode(&danmuInfoRes); err != nil {
+		slog.Error("Decode room play info failed. ", "Error", err)
+		return 0, 0
+	}
+	if danmuInfoRes.Code != 0 {
+		slog.Error("Get room play info returned error code. ", "Code", danmuInfoRes.Code)
+		return 0, 0
+	}
 	return danmuInfoRes.Data.RoomID, danmuInfoRes.Data.UID
 }
 
@@ -316,9 +339,7 @@ func (w LiveWatcher) sendHeartbeatPacket(ctx context.Context) {
 					slog.Error("Send Hearbeat Error", "Error", err, "RoomID", w.roomID)
 				}
 				w.conn.Close() // 关闭连接,触发主循环感知断开并重连
-				return        // 发生错误跳出循环，协程结束
-			} else {
-				// slog.Info("心跳包已发送")
+				return         // 发生错误跳出循环，协程结束
 			}
 		}
 	}
