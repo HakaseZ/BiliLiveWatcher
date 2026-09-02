@@ -102,6 +102,10 @@ func replayFile(path string, raw bool) error {
 		pktLen := binary.BigEndian.Uint32(head[12:16])
 		if pktLen < 16 || pktLen > maxPacketSize {
 			fmt.Fprintf(os.Stderr, "警告: 第 %d 帧长度非法(%d),重新同步\n", frameNum, pktLen)
+			// 先消费一字节,避免 resync 看到未变的 BLCP magic 原地返回导致死循环
+			if _, err := r.Discard(1); err != nil {
+				break
+			}
 			if _, err := resync(r); err != nil {
 				break
 			}

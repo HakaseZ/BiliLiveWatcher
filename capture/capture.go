@@ -48,7 +48,9 @@ func Init(path string, enabled bool, maxSizeMB, maxBackups int) {
 	defer mu.Unlock()
 	stopWriteLoopLocked()
 	if writer != nil {
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			slog.Warn("关闭捕获文件失败", "error", err)
+		}
 		writer = nil
 	}
 	if !enabled || path == "" {
@@ -137,7 +139,9 @@ func Close() {
 	defer mu.Unlock()
 	stopWriteLoopLocked()
 	if writer != nil {
-		writer.Close()
+		if err := writer.Close(); err != nil {
+			slog.Warn("关闭捕获文件失败", "error", err)
+		}
 		writer = nil
 	}
 }

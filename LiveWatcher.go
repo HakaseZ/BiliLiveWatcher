@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/HakaseZ/BiliLiveWatcher/capture"
@@ -33,11 +35,13 @@ func main() {
 	rConfig, err := os.ReadFile("config.json")
 	if err != nil {
 		slog.Error("Error load config file.", "Error", err)
+		os.Exit(1)
 	}
 	var conf model.Config
 	err = json.Unmarshal(rConfig, &conf)
 	if err != nil {
 		slog.Error("Error Unmarshal config file.", "Error", err)
+		os.Exit(1)
 	}
 
 	// 实例化监听器
@@ -55,8 +59,6 @@ func main() {
 
 	// 初始化原始数据包捕获
 	capture.Init(conf.Capture.Path, conf.Capture.Enabled, conf.Capture.MaxSizeMB, conf.Capture.MaxBackups)
-	defer capture.Close()
-
 
 	// 	for {
 	// 		ticker := time.NewTicker(24 * time.Hour)
@@ -99,12 +101,16 @@ func main() {
 				go w.Run(ctx, c)
 
 				<-ticker.C // 阻塞等待24小时
-				slog.Info("正在重新启动全部监听器")
+				slog.Info("正在重新启动监听器", "RoomID", wconf.Roomid)
 				cancel() // 取消当前监听器的上下文，通知其退出，进入下个循环重新启动监听器
 				ticker.Stop()
 			}
 		}()
 	}
 
-	select {} // 阻塞主协程，保持程序运行
+	// 等待退出信号(SIGINT/SIGTERM),优雅关闭捕获后退出
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	<-sig
+	capture.Close()
 }
