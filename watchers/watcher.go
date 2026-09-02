@@ -233,20 +233,28 @@ func (w LiveWatcher) getDanmuInfo() (string, []wsHost) {
 	request.Header.Set("Referer", "https://www.bilibili.com")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 10 * time.Second}
 	response, err := client.Do(request)
 	if err != nil {
 		slog.Error("Error get DanmuInfo.", "Error", err)
+		return "", nil
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		slog.Error("Get DanmuInfo returned HTTP error. ", "StatusCode", response.StatusCode)
+		return "", nil
 	}
 
 	// 解析响应
 	var danmuInfoRes DanmuInfoResponse
-	json.NewDecoder(response.Body).Decode(&danmuInfoRes)
-
-	defer response.Body.Close()
-
+	if err := json.NewDecoder(response.Body).Decode(&danmuInfoRes); err != nil {
+		slog.Error("Decode DanmuInfo failed. ", "Error", err)
+		return "", nil
+	}
 	if danmuInfoRes.Code != 0 {
 		slog.Error("Error fetching DanmuInfo", "Code", danmuInfoRes.Code)
+		return "", nil
 	}
 
 	return danmuInfoRes.Data.Token, danmuInfoRes.Data.HostList
