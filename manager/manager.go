@@ -87,7 +87,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			}
 			n.Icon = streamerIcon
 			n.Title = fmt.Sprintf("%s正在直播", msg.Title)
-			n.BodyText = fmt.Sprintf("%s", msg.Title)
+			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 			slog.Info("发送通知", "通知内容", n.Title)
 			n.Send()

@@ -49,11 +49,21 @@ func NewWatcher(roomid int, cookie string) LiveWatcher {
 	var w LiveWatcher
 	w.cookie = cookie
 	w.roomID, w.UID = w.getRoomPlayInfo(roomid)
+	if w.roomID == 0 || w.UID == 0 {
+		slog.Error("获取直播间信息失败,停止初始化监听器", "RoomID", roomid)
+		return w
+	}
 	w.Token, w.wsHosts = w.getDanmuInfo()
 	return w
 }
 
 func (w LiveWatcher) Run(ctx context.Context, c chan model.Metric) {
+	// 初始化失败(房间信息或弹幕服务器配置获取失败)时直接退出,避免空 host 索引 panic
+	if w.roomID == 0 || len(w.wsHosts) == 0 {
+		slog.Error("监听器初始化失败,停止运行", "RoomID", w.roomID)
+		close(c)
+		return
+	}
 	// 断线后指数退避重连:5s → 10s → 20s → 40s → 60s(封顶)
 	backoff := 5 * time.Second
 	for {
@@ -160,10 +170,19 @@ func (w LiveWatcher) getRoomPlayInfo(shortId int) (roomId int, uid int) {
 	}
 	defer response.Body.Close()
 
+	if response.StatusCode != http.StatusOK {
+		slog.Error("Get room play info returned HTTP error. ", "StatusCode", response.StatusCode)
+		return 0, 0
+	}
+
 	// 解析响应
 	var danmuInfoRes RooomPlayInfoResponse
 	if err := json.NewDecoder(response.Body).Decode(&danmuInfoRes); err != nil {
 		slog.Error("Decode room play info failed. ", "Error", err)
+		return 0, 0
+	}
+	if danmuInfoRes.Code != 0 {
+		slog.Error("Get room play info returned error code. ", "Code", danmuInfoRes.Code)
 		return 0, 0
 	}
 	return danmuInfoRes.Data.RoomID, danmuInfoRes.Data.UID
