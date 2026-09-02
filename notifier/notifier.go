@@ -25,10 +25,15 @@ type Bark struct {
 // 带超时的客户端,避免通知请求卡住阻塞整个事件处理链
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
-func (b Bark) Send() {
+// Send 向全部配置的 Bark 服务器发送通知
+//
+// Args:
+//
+//	ctx (context.Context): 请求上下文,取消时中止在途通知发送
+func (b Bark) Send(ctx context.Context) {
 	for _, server := range b.Servers {
 		url := fmt.Sprintf("%s/%s/%s?icon=%s&url=%s", server, url.PathEscape(b.Title), url.PathEscape(b.BodyText), url.QueryEscape(b.Icon), url.QueryEscape(b.URL))
-		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			slog.Error("构造通知请求失败", "Error", err)
 			continue

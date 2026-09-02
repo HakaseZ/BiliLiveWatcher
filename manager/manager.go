@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,7 +15,14 @@ import (
 	"github.com/HakaseZ/BiliLiveWatcher/notifier"
 )
 
-func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
+// Manager 消费直播间事件通道并发送对应通知
+//
+// Args:
+//
+//	ctx (context.Context): 通知请求上下文,取消时中止在途通知发送
+//	c (chan model.Metric): 直播间事件通道
+//	nconfig (model.LiveWatcher): 直播间与通知配置
+func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
 	onStream, streamerUID, lastTitle := room_get_info(nconfig.Roomid)
@@ -35,7 +43,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				_, _, n.BodyText = room_get_info(nconfig.Roomid)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "PREPARING":
 			if onStream {
@@ -49,7 +57,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				_, _, n.BodyText = room_get_info(nconfig.Roomid)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			} else {
 				slog.Warn("重复收到下播事件")
 			}
@@ -61,7 +69,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "DANMU_MSG":
 			msg := m.Msg.(model.DanmuMsg)
@@ -71,7 +79,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				n.BodyText = msg.Danmu
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "ROOM_CHANGE":
 			msg := m.Msg.(model.RoomChangeMsg)
@@ -90,11 +98,22 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 			slog.Info("发送通知", "通知内容", n.Title)
-			n.Send()
+			n.Send(ctx)
 		}
 	}
 }
 
+// room_get_info 查询直播间当前状态
+//
+// Args:
+//
+//	roomid (int): 直播间ID
+//
+// Returns:
+//
+//	isLive (bool): 是否正在直播
+//	uid (int): 主播UID
+//	title (string): 直播间标题
 func room_get_info(roomid int) (bool, int, string) {
 	type RoomGetInfoResponse struct {
 		Code int `json:"code"`
@@ -120,6 +139,10 @@ func room_get_info(roomid int) (bool, int, string) {
 		return false, 0, ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		slog.Error("Room get info returned non-2xx status. ", "StatusCode", response.StatusCode)
+		return false, 0, ""
+	}
 
 	var roomInfoRes RoomGetInfoResponse
 	if err := json.NewDecoder(response.Body).Decode(&roomInfoRes); err != nil {
@@ -134,6 +157,16 @@ func room_get_info(roomid int) (bool, int, string) {
 	return roomInfoRes.Data.LiveStatus == 1, roomInfoRes.Data.UID, roomInfoRes.Data.Title
 }
 
+// get_master_info 查询主播名称与头像
+//
+// Args:
+//
+//	uid (int): 主播UID
+//
+// Returns:
+//
+//	username (string): 主播用户名
+//	face (string): 主播头像URL
 func get_master_info(uid int) (string, string) {
 	type GetMasterInfoResponse struct {
 		Code int `json:"code"`
@@ -161,6 +194,10 @@ func get_master_info(uid int) (string, string) {
 		return "", ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		slog.Error("Master info returned non-2xx status. ", "StatusCode", response.StatusCode)
+		return "", ""
+	}
 
 	var masterInfoRes GetMasterInfoResponse
 	if err := json.NewDecoder(response.Body).Decode(&masterInfoRes); err != nil {
