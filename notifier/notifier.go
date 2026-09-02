@@ -38,7 +38,9 @@ func (b Bark) Send() {
 			slog.Error("发送通知失败", "Error", err, "Server", server)
 			continue
 		}
-		resp.Body.Close()
+		if err := resp.Body.Close(); err != nil {
+			slog.Error("关闭通知响应失败", "Error", err)
+		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			slog.Error("发送通知返回异常状态码", "StatusCode", resp.StatusCode, "Server", server)
 			continue
