@@ -1,6 +1,7 @@
 package notifier
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -27,12 +28,21 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 func (b Bark) Send() {
 	for _, server := range b.Servers {
 		url := fmt.Sprintf("%s/%s/%s?icon=%s&url=%s", server, url.PathEscape(b.Title), url.PathEscape(b.BodyText), url.QueryEscape(b.Icon), url.QueryEscape(b.URL))
-		slog.Info("消息已发送", "URL", url)
-		resp, err := httpClient.Get(url)
+		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+		if err != nil {
+			slog.Error("构造通知请求失败", "Error", err)
+			continue
+		}
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			slog.Error("发送通知失败", "Error", err, "Server", server)
 			continue
 		}
 		resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			slog.Error("发送通知返回异常状态码", "StatusCode", resp.StatusCode, "Server", server)
+			continue
+		}
+		slog.Info("消息已发送", "URL", url)
 	}
 }
