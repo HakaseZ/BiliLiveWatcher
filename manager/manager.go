@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -14,7 +15,7 @@ import (
 	"github.com/HakaseZ/BiliLiveWatcher/notifier"
 )
 
-func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
+func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher) {
 	var n notifier.Bark
 	n.Servers = nconfig.Notifier.Bark
 	onStream, streamerUID, lastTitle := room_get_info(nconfig.Roomid)
@@ -35,7 +36,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				_, _, n.BodyText = room_get_info(nconfig.Roomid)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "PREPARING":
 			if onStream {
@@ -49,7 +50,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				_, _, n.BodyText = room_get_info(nconfig.Roomid)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			} else {
 				slog.Warn("重复收到下播事件")
 			}
@@ -61,7 +62,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "DANMU_MSG":
 			msg := m.Msg.(model.DanmuMsg)
@@ -71,7 +72,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 				n.BodyText = msg.Danmu
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 				slog.Info("发送通知", "通知内容", n.Title)
-				n.Send()
+				n.Send(ctx)
 			}
 		case "ROOM_CHANGE":
 			msg := m.Msg.(model.RoomChangeMsg)
@@ -90,7 +91,7 @@ func Manager(c chan model.Metric, nconfig model.LiveWatcher) {
 			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 			slog.Info("发送通知", "通知内容", n.Title)
-			n.Send()
+			n.Send(ctx)
 		}
 	}
 }
@@ -120,6 +121,10 @@ func room_get_info(roomid int) (bool, int, string) {
 		return false, 0, ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		slog.Error("Room get info returned non-2xx status. ", "StatusCode", response.StatusCode)
+		return false, 0, ""
+	}
 
 	var roomInfoRes RoomGetInfoResponse
 	if err := json.NewDecoder(response.Body).Decode(&roomInfoRes); err != nil {
@@ -161,6 +166,10 @@ func get_master_info(uid int) (string, string) {
 		return "", ""
 	}
 	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		slog.Error("Master info returned non-2xx status. ", "StatusCode", response.StatusCode)
+		return "", ""
+	}
 
 	var masterInfoRes GetMasterInfoResponse
 	if err := json.NewDecoder(response.Body).Decode(&masterInfoRes); err != nil {

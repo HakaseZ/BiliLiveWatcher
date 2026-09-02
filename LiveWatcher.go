@@ -61,33 +61,6 @@ func main() {
 	// 初始化原始数据包捕获
 	capture.Init(conf.Capture.Path, conf.Capture.Enabled, conf.Capture.MaxSizeMB, conf.Capture.MaxBackups)
 
-	// 	for {
-	// 		ticker := time.NewTicker(24 * time.Hour)
-	// 		ctx, cancel := context.WithCancel(context.Background())
-	// 		for _, wconf := range conf.LiveWatcher {
-	//
-	// 			// 1.初始化chan
-	// 			// 2.初始化Manager
-	// 			// 3.初始化Watcher
-	// 			c := make(chan model.Metric)
-	// 			// wconf := wconf
-	// 			// 去重并注册 Notifier
-	// 			// 构造 Watcher-Notifier map
-	// 			// 实例化 Watcher 协程
-	// 			// var w watchers.LiveWatcher
-	// 			go manager.Manager(c, wconf)
-	// 			watcher := watchers.NewWatcher(wconf.Roomid, conf.Credential.Cookie)
-	// 			go watcher.Run(ctx, c)
-	// 		}
-	// 		<-ticker.C
-	// 		slog.Info("正在重新启动监听器")
-	// 		cancel()
-	// 		ticker.Stop()
-	// 		// time.Sleep(5 * time.Second) // 等待5秒钟，确保所有监听器都已关闭
-	// 	}
-
-	// #12
-
 	// 共享根上下文:收到退出信号时可取消所有 watcher
 	ctx, cancel := context.WithCancel(context.Background())
 	var wg sync.WaitGroup
@@ -103,7 +76,7 @@ func main() {
 
 				var inner sync.WaitGroup
 				inner.Add(2)
-				go func() { defer inner.Done(); manager.Manager(c, wconf) }()
+				go func() { defer inner.Done(); manager.Manager(iterCtx, c, wconf) }()
 				go func() { defer inner.Done(); w.Run(iterCtx, c) }()
 
 				select {
@@ -112,6 +85,9 @@ func main() {
 					iterCancel()
 					inner.Wait() // 等待当前 watcher 与 manager 退出后再重启
 					ticker.Stop()
+					if ctx.Err() != nil { // 取消与到期同时发生时不再重启
+						return
+					}
 				case <-ctx.Done(): // 收到退出信号,结束循环
 					iterCancel()
 					inner.Wait() // 等待 watcher 退出(关闭channel)与 manager 排空
