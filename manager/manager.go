@@ -42,7 +42,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				n.Title = fmt.Sprintf("%s开播了", streamerName)
 				_, _, n.BodyText = room_get_info(nconfig.Roomid)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-				slog.Info("发送通知", "通知内容", n.Title)
+				slog.Info("发送通知", "通知内容", n.Title, "直播间标题", n.BodyText)
 				n.Send(ctx)
 			}
 		case "PREPARING":
@@ -68,7 +68,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				n.Title = fmt.Sprintf("%s来了", msg.Username)
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-				slog.Info("发送通知", "通知内容", n.Title)
+				slog.Info("发送通知", "通知内容", n.Title, "用户名", msg.Username)
 				n.Send(ctx)
 			}
 		case "DANMU_MSG":
@@ -78,7 +78,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				n.Title = fmt.Sprintf("%s在%s的直播间发了一条弹幕", msg.Username, streamerName)
 				n.BodyText = msg.Danmu
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-				slog.Info("发送通知", "通知内容", n.Title)
+				slog.Info("发送通知", "通知内容", n.Title, "弹幕内容", msg.Danmu)
 				n.Send(ctx)
 			}
 		case "ROOM_CHANGE":
@@ -86,8 +86,6 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 			if msg.Title == "" || msg.Title == lastTitle {
 				break
 			}
-			// 记录标题变更
-			slog.Info("直播间标题变更", "RoomID", nconfig.Roomid, "旧标题", lastTitle, "新标题", msg.Title)
 			lastTitle = msg.Title
 			// 配置关闭开播通知(LIVE=false)或房间未开播(PREPARING)时不发送标题变更通知
 			if !nconfig.Event.LIVE || !onStream {
@@ -97,7 +95,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 			n.Title = fmt.Sprintf("%s正在直播", streamerName)
 			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-			slog.Info("发送通知", "通知内容", n.Title)
+			slog.Info("发送通知", "通知内容", n.Title, "新标题", msg.Title)
 			n.Send(ctx)
 		}
 	}
