@@ -31,7 +31,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 		switch m.Mtype {
 		case "LIVE":
 			if onStream {
-				slog.Warn("重复收到开播事件")
+				slog.Warn("重复收到开播事件", "主播名称", streamerName)
 			} else {
 				onStream = true
 				// 配置关闭开播通知时仅同步流状态,不发送通知
@@ -59,7 +59,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				slog.Info("发送通知", "通知内容", n.Title)
 				n.Send(ctx)
 			} else {
-				slog.Warn("重复收到下播事件")
+				slog.Warn("重复收到下播事件", "主播名称", streamerName)
 			}
 		case "INTERACT_WORD_V2":
 			msg := m.Msg.(model.EnterRoomMsg)
