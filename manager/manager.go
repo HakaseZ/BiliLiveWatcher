@@ -68,7 +68,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				n.Title = fmt.Sprintf("%s来了", msg.Username)
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-				slog.Info("发送通知", "通知内容", n.Title, "用户名", msg.Username)
+				slog.Info("发送通知", "通知内容", n.BodyText)
 				n.Send(ctx)
 			}
 		case "DANMU_MSG":
