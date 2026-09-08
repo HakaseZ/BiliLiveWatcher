@@ -84,11 +84,14 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 		case "ROOM_CHANGE":
 			msg := m.Msg.(model.RoomChangeMsg)
 			if msg.Title == "" || msg.Title == lastTitle {
+				// Title为空的情况并非不可能，在某些特殊的情况下直播间标题会被清空，暂无日志可供分析具体清空逻辑。
+				// 标题清空亦有可能会影响到onStream的状态判断。
+				// 暂不做处理
 				break
 			}
 			lastTitle = msg.Title
 			// 配置关闭开播通知(LIVE=false)或房间未开播(PREPARING)时不发送标题变更通知
-			if !nconfig.Event.LIVE || !onStream {
+			if !nconfig.Event.LIVE {
 				break
 			}
 			n.Icon = streamerIcon
