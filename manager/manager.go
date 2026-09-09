@@ -68,7 +68,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				n.Title = fmt.Sprintf("%s来了", msg.Username)
 				n.BodyText = fmt.Sprintf("%s进入了%s的直播间。", msg.Username, streamerName)
 				n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
-				slog.Info("发送通知", "通知内容", n.Title, "用户名", msg.Username)
+				slog.Info("发送通知", "通知内容", n.BodyText)
 				n.Send(ctx)
 			}
 		case "DANMU_MSG":
@@ -84,15 +84,18 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 		case "ROOM_CHANGE":
 			msg := m.Msg.(model.RoomChangeMsg)
 			if msg.Title == "" || msg.Title == lastTitle {
+				// Title为空的情况并非不可能，在某些特殊的情况下直播间标题会被清空，暂无日志可供分析具体清空逻辑。
+				// 标题清空亦有可能会影响到onStream的状态判断。
+				// 暂不做处理
 				break
 			}
 			lastTitle = msg.Title
-			// 配置关闭开播通知(LIVE=false)或房间未开播(PREPARING)时不发送标题变更通知
-			if !nconfig.Event.LIVE || !onStream {
+			// nconfig.Event.LIVE 是发送标题变更通知的唯一开关
+			if !nconfig.Event.LIVE {
 				break
 			}
 			n.Icon = streamerIcon
-			n.Title = fmt.Sprintf("%s正在直播", streamerName)
+			n.Title = fmt.Sprintf("%s修改了直播间标题", streamerName)
 			n.BodyText = msg.Title
 			n.URL = fmt.Sprintf("bilibili://live/%d", m.M_RoomID)
 			slog.Info("发送通知", "通知内容", n.Title, "新标题", msg.Title)
