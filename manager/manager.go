@@ -90,7 +90,7 @@ func Manager(ctx context.Context, c chan model.Metric, nconfig model.LiveWatcher
 				break
 			}
 			lastTitle = msg.Title
-			// 配置关闭开播通知(LIVE=false)或房间未开播(PREPARING)时不发送标题变更通知
+			// nconfig.Event.LIVE 是发送标题变更通知的唯一开关
 			if !nconfig.Event.LIVE {
 				break
 			}
